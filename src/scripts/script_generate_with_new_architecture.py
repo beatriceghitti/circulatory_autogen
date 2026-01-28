@@ -104,7 +104,7 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
             # TODO F2B, please remove these prints or use if DEBUG ... 
             print("Check point 1A")
 
-            code_generator = CVS0DCppGenerator(model, generated_models_subdir, file_prefix_0d, #XXX
+            code_generator = CVS0DCppGenerator(model, generated_models_subdir, file_prefix, #file_prefix_0d, #XXX
                                             resources_dir=resources_dir, solver=solver_cpp, 
                                             dtSample=dtSample, dtSolver=dtSolver, nMaxSteps=nMaxSteps,
                                             couple_to_1d=inp_data_dict['couple_to_1d'],
