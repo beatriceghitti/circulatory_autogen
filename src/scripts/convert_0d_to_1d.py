@@ -23,6 +23,9 @@ def convert_0d_to_1d(model, folder_0d, param_file_0d, folder_hyb=None, vess_1d_l
 
     folder_0d = Path(folder_0d)
 
+    print(folder_0d)
+    print(folder_hyb)
+
     if folder_hyb is None:
         folder_hyb = folder_0d
     
@@ -119,17 +122,17 @@ if __name__ == "__main__":
     model = "cvs_model"
     # model = "cvs_model_with_arm"
     
-    folder_0d = "/hpc/bghi639/Software/VITAL_TrainingSchool2_Tutorials/"+model+"_0d/resources/"
+    folder_0d = "/hpc/bghi639/Software/abi-animus-lab-tutorials/tutorial_2_5_Argus_Ghitti_Davis/"+model+"_0d/resources/"
 
     param_file_0d = model+"_0d_parameters.csv"
 
-    folder_hyb = "/hpc/bghi639/Software/VITAL_TrainingSchool2_Tutorials/"+model+"_hybrid/resources/"
+    folder_hyb = "/hpc/bghi639/Software/abi-animus-lab-tutorials/tutorial_2_5_Argus_Ghitti_Davis/"+model+"_hybrid/resources/"
 
     vess_1d_list = ['A_aorta_ascending_1', 'A_aorta_ascending_2', 'A_aorta_ascending_3', 'A_aorta_ascending_4',
                     'A_aortic_arch_1', 'A_aortic_arch_2', 'A_aortic_arch_3', 'A_aortic_arch_4',
                     'A_brachiocephalic_trunk',
                     'A_common_carotid_L', 'A_common_carotid_R',
-                    'A_subclavian_L', 'A_subclavian_R',
+                    'A_subclavian_L', 'A_subclavian_R', 'A_celiac_trunk',
                     'A_aorta_thoracic_1', 'A_aorta_thoracic_2', 'A_aorta_thoracic_3', 'A_aorta_thoracic_4', 'A_aorta_thoracic_5',
                     'A_aorta_abdominal_1', 'A_aorta_abdominal_2', 'A_aorta_abdominal_3', 'A_aorta_abdominal_4', 'A_aorta_abdominal_5', 'A_aorta_abdominal_6',
                     'A_common_iliac_L', 'A_common_iliac_R']

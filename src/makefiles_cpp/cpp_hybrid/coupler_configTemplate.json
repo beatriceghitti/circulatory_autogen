@@ -1,0 +1,13 @@
+{
+    "inputFold": "./",
+    "networkName": "model_hybrid",
+    "ODEsolver": "CVODE",
+    "T0": 1.0,
+    "nCC": 3,
+    "tmp_pipe_path": "/home/bghi639/Software/tmp/",
+    "solver0d_path": "./main0d",
+    "python_path": "/home/bghi639/anaconda3/bin/python",
+    "solver1d_path": "../../src/solver1d/main1D.py",
+    "initFile_sim1d_path": "../../files_1d/model_hybrid/run000/input.ini",
+    "initStatePath": "None"
+}

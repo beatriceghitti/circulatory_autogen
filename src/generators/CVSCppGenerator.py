@@ -4,6 +4,7 @@ Created on 23/05/2023
 @author: Finbar Argus
 '''
 
+import shutil
 import numpy as np
 import re
 import pandas as pd
@@ -17,6 +18,8 @@ sys.path.append(os.path.join(root_dir, 'src'))
 from generators.CVSCellMLGenerator import CVS0DCellMLGenerator
 from parsers.PrimitiveParsers import CSVFileParser
 from generators.Python1DModelFilesGenerator import generate1DPythonModelFiles, generate1DPythonSimInitFile
+site_pkg_path = [p for p in sys.path if 'site-packages' in p][0]
+opencor_root = site_pkg_path.split('/Python/')[0]
 
 LIBCELLML_available = True
 try:
@@ -1400,14 +1403,7 @@ public:
     void closeOutputFiles();
         """
 
-    #     if self.solver == 'CVODE':
-    #         otherHeaderInits += """
-    # void solveOneStepCVODE(double dtLoc);
-    #     """
-    #     else:
-    #         otherHeaderInits += """
-    # void solveOneStepExpl(double dtLoc);
-    #     """
+    
         otherHeaderInits += """
     void solveOneStep(double dtLoc);
         """
@@ -3694,6 +3690,113 @@ int main(int argc, char* argv[]){
             # save main to file    
             with open(os.path.join(self.cpp_generated_models_dir, 'main0d.cpp'), 'w') as f:
                 f.write(mainScript)
+
+
+        if not self.couple_to_1d:
+            if self.solver == 'PETSC':
+                makefile = "MakefilePETSC"
+                runfile = "runPETSC.bash"
+            else:
+                makefile = "Makefile"
+                runfile = "runCVODE.bash"
+            
+            # Makefile for 0d solver
+            with open(os.path.join(generators_dir_path, '../makefiles_cpp/cpp_0d/'+makefile), 'r') as file:
+                lines = file.readlines()
+
+            makefileScript = """
+"""
+            for line in lines:
+                if 'model0d' in line:
+                    line = line.replace('model0d', self.output_cpp_file_name)
+                makefileScript += line
+
+            with open(os.path.join(self.cpp_generated_models_dir, makefile), 'w') as f:
+                f.write(makefileScript)
+
+            # bash script to build and run the 0d solver
+            with open(os.path.join(generators_dir_path, '../makefiles_cpp/cpp_0d/'+runfile), 'r') as file:
+                lines = file.readlines()
+
+            runfileScript = """
+"""
+            for line in lines:
+                if 'model0d' in line:
+                    line = line.replace('model0d', self.output_cpp_file_name)
+                runfileScript += line
+
+            with open(os.path.join(self.cpp_generated_models_dir, runfile), 'w') as f:
+                f.write(runfileScript)
+        
+        else:
+            if self.solver == 'PETSC':
+                makefile = "MakefilePETSC"
+            else:
+                makefile = "Makefile"
+            makefile_coupler = "MakefileCoupler"
+            
+            runfile_coupler = "run_coupler1d0d.bash"
+            
+            tmp_pipe_dir = "/tmp/pipes"
+            # tmp_pipe_dir = "/home/bghi639/Software/tmp"
+            # if not os.path.exists(tmp_pipe_dir):
+            #     os.mkdir(tmp_pipe_dir)
+            
+            # Makefile for 0d solver         
+            source = os.path.join(generators_dir_path, '../makefiles_cpp/cpp_hybrid/'+makefile)
+            destination = os.path.join(self.cpp_generated_models_dir, makefile) 
+            shutil.copy2(source, destination)
+
+            # Makefile for coupler
+            # source = os.path.join(generators_dir_path, '../makefiles_cpp/cpp_hybrid/'+makefile_coupler)
+            # destination = os.path.join(self.cpp_generated_models_dir, makefile_coupler) 
+            # shutil.copy2(source, destination)
+
+            # bash script to build and run the 1d-0d coupled solver
+            with open(os.path.join(generators_dir_path, '../makefiles_cpp/cpp_hybrid/'+runfile_coupler), 'r') as file:
+                lines = file.readlines()
+
+            runfileScript = """
+"""
+            for line in lines:
+                if ('USE_PETSC' in line and self.solver == 'PETSC'):
+                    line = line.replace('USE_PETSC=0', 'USE_PETSC=1')
+                    # print(line)
+                if 'FOLDERcpp=\"\"' in line:
+                    line = line.replace('FOLDERcpp=\"\"', f'FOLDERcpp=\"{self.cpp_generated_models_dir}/\"')
+                    # print(line)
+                if 'FOLDERcoupler=\"\"' in line:
+                    line = line.replace('FOLDERcoupler=\"\"', f'FOLDERcoupler=\"{generators_dir_path}/../coupler/\"')
+                    # print(line)
+                if 'FOLDERpipes=\"\"' in line:
+                    line = line.replace('FOLDERpipes=\"\"', f'FOLDERpipes=\"{tmp_pipe_dir}\"')
+                    # print(line)
+                runfileScript += line
+
+            with open(os.path.join(self.cpp_generated_models_dir, runfile_coupler), 'w') as f:
+                f.write(runfileScript)
+
+            # coupler configuration file
+            with open(os.path.join(generators_dir_path, '../makefiles_cpp/cpp_hybrid/coupler_configTemplate.json'), 'r') as file:
+                coupler_config = json.load(file)
+
+            coupler_config['inputFold'] = self.cpp_generated_models_dir+'/'
+            coupler_config['networkName'] = self.file_prefix
+            coupler_config['ODEsolver'] = self.solver
+            coupler_config['T0'] = 1.0 #XXX DEFAULT, THIS SHOULD BE READ FROM MODEL CONFIG/INPUT FILES
+            coupler_config['nCC'] = 3 #XXX DEFAULT, THIS SHOULD BE READ FROM MODEL CONFIG/INPUT FILES
+            coupler_config['tmp_pipe_path'] = tmp_pipe_dir+'/'
+            coupler_config['solver0d_path'] = self.cpp_generated_models_dir+'/main0d'
+            # coupler_config['python_path'] = '/home/bghi639/anaconda3/bin/python'
+            # coupler_config['python_path'] = '/home/bghi639/Software/OpenCOR-0-8-3-Linux/python'
+            coupler_config['python_path'] = opencor_root+'/python' #XXX DEFAULT OpenCOR Python
+            coupler_config['solver1d_path'] = generators_dir_path+'/../solver1d/main1D.py' #XXX THIS WILL CHANGE TO A SEPARATE REPO FOR THE 1D SOLVER
+            coupler_config['initFile_sim1d_path'] = self.model_1d_config_path
+            coupler_config['initStatePath'] = 'None'
+
+            with open(os.path.join(self.cpp_generated_models_dir, 'coupler_config.json'), 'w') as f:
+                json.dump(coupler_config, f, indent=4)
+
         
         print("Cpp files generated. Check they run properly.")
         
@@ -3718,6 +3821,9 @@ class CVS1DPythonGenerator(object):
         self.initFile1d = model_1d_config_path
         
         self.run1dFold = os.path.dirname(model_1d_config_path)
+        parent1dFold = os.path.dirname(self.run1dFold)
+        if not os.path.exists(parent1dFold):
+            os.mkdir(parent1dFold)
         if not os.path.exists(self.run1dFold):
             os.mkdir(self.run1dFold)
         
