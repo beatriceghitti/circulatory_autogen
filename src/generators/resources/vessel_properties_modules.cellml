@@ -273,6 +273,7 @@
         <variable name="n_tube" public_interface="in" units="dimensionless"/>
         <variable name="l" public_interface="in" units="metre"/>
         <variable name="r_0" public_interface="in" units="metre"/>
+        <variable name="h" public_interface="out" units="metre"/>
         <variable name="k_1" public_interface="in" units="J_per_m3"/>
         <variable name="k_2" public_interface="in" units="per_m"/>
         <variable name="k_3" public_interface="in" units="J_per_m3"/>
@@ -351,6 +352,16 @@
                     </apply>
                 </apply>
             </apply>
+            <apply>
+                <eq/>
+                <ci>h</ci>
+                <apply>
+                    <times/>
+                    <cn cellml:units="dimensionless">0.1</cn>
+                    <ci>r_0</ci>
+                </apply>
+            </apply>
+            <!-- 10% of ref radius-->
             <apply>
                 <eq/>
                 <ci>K_tube_visco</ci>
@@ -579,6 +590,7 @@
         <variable name="n_tube" public_interface="in" units="dimensionless"/>
         <variable name="l" public_interface="in" units="metre"/>
         <variable name="r_0" public_interface="in" units="metre"/>
+        <variable name="h" public_interface="out" units="metre"/>
         <variable name="r0_max" public_interface="in" units="metre"/>
         <variable name="r0_min" public_interface="in" units="metre"/>
         <variable name="c0_max" public_interface="in" units="m_per_s"/>
@@ -655,6 +667,16 @@
                     </apply>
                 </apply>
             </apply>
+            <apply>
+                <eq/>
+                <ci>h</ci>
+                <apply>
+                    <times/>
+                    <cn cellml:units="dimensionless">0.05</cn>
+                    <ci>r_0</ci>
+                </apply>
+            </apply>
+            <!-- 5% of ref radius-->
             <apply>
                 <eq/>
                 <ci>K_tube_visco</ci>

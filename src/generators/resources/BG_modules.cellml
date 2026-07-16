@@ -7307,7 +7307,6 @@ u_out = 0{J_per_m3};-->
                 </apply>
             </apply>
             <!-- Constitutive Relations-->
-            <!-- I = I_scale*rho*l/(pi*sqr(r));-->
             <apply>
                 <eq/>
                 <ci>I</ci>
@@ -7324,12 +7323,13 @@ u_out = 0{J_per_m3};-->
                         <pi/>
                         <apply>
                             <power/>
-                            <ci>r_0</ci>
+                            <ci>r</ci>
                             <cn cellml:units="dimensionless">2</cn>
                         </apply>
                     </apply>
                 </apply>
             </apply>
+            <!--I = I_scale*rho*l/(pi*sqr(r_0));-->
             <apply>
                 <eq/>
                 <ci>R</ci>
@@ -7953,7 +7953,6 @@ u_out = 0{J_per_m3};-->
                 </apply>
             </apply>
             <!-- Constitutive Relations-->
-            <!-- I = I_scale*rho*l/(pi*sqr(r));-->
             <apply>
                 <eq/>
                 <ci>I</ci>
@@ -7970,12 +7969,13 @@ u_out = 0{J_per_m3};-->
                         <pi/>
                         <apply>
                             <power/>
-                            <ci>r_0</ci>
+                            <ci>r</ci>
                             <cn cellml:units="dimensionless">2</cn>
                         </apply>
                     </apply>
                 </apply>
             </apply>
+            <!--I = I_scale*rho*l/(pi*sqr(r_0));-->
             <apply>
                 <eq/>
                 <ci>R</ci>
@@ -8702,7 +8702,6 @@ u_out = 0{J_per_m3};-->
                 </apply>
             </apply>
             <!-- Constitutive Relations-->
-            <!-- I = I_scale*rho*l/(pi*sqr(r));-->
             <apply>
                 <eq/>
                 <ci>I</ci>
@@ -8719,12 +8718,13 @@ u_out = 0{J_per_m3};-->
                         <pi/>
                         <apply>
                             <power/>
-                            <ci>r_0</ci>
+                            <ci>r</ci>
                             <cn cellml:units="dimensionless">2</cn>
                         </apply>
                     </apply>
                 </apply>
             </apply>
+            <!--I = I_scale*rho*l/(pi*sqr(r_0));-->
             <apply>
                 <eq/>
                 <ci>R</ci>
@@ -9574,7 +9574,6 @@ u_out = 0{J_per_m3};-->
                 </apply>
             </apply>
             <!-- Constitutive Relations-->
-            <!--I = I_scale*rho*l/(pi*sqr(r));-->
             <apply>
                 <eq/>
                 <ci>I</ci>
@@ -9591,12 +9590,13 @@ u_out = 0{J_per_m3};-->
                         <pi/>
                         <apply>
                             <power/>
-                            <ci>r_0</ci>
+                            <ci>r</ci>
                             <cn cellml:units="dimensionless">2</cn>
                         </apply>
                     </apply>
                 </apply>
             </apply>
+            <!--I = I_scale*rho*l/(pi*sqr(r_0));-->
             <apply>
                 <eq/>
                 <ci>R</ci>
@@ -10425,7 +10425,6 @@ u_out = 0{J_per_m3};-->
                 </apply>
             </apply>
             <!-- Constitutive Relations-->
-            <!-- I = I_scale*rho*l/(pi*sqr(r));-->
             <apply>
                 <eq/>
                 <ci>I</ci>
@@ -10442,12 +10441,13 @@ u_out = 0{J_per_m3};-->
                         <pi/>
                         <apply>
                             <power/>
-                            <ci>r_0</ci>
+                            <ci>r</ci>
                             <cn cellml:units="dimensionless">2</cn>
                         </apply>
                     </apply>
                 </apply>
             </apply>
+            <!--I = I_scale*rho*l/(pi*sqr(r_0));-->
             <apply>
                 <eq/>
                 <ci>R</ci>
@@ -11331,7 +11331,6 @@ u_out = 0{J_per_m3};-->
                 </apply>
             </apply>
             <!-- Constitutive Relations-->
-            <!-- I = I_scale*rho*l/(pi*sqr(r));-->
             <apply>
                 <eq/>
                 <ci>I</ci>
@@ -11348,12 +11347,13 @@ u_out = 0{J_per_m3};-->
                         <pi/>
                         <apply>
                             <power/>
-                            <ci>r_0</ci>
+                            <ci>r</ci>
                             <cn cellml:units="dimensionless">2</cn>
                         </apply>
                     </apply>
                 </apply>
             </apply>
+            <!--I = I_scale*rho*l/(pi*sqr(r_0));-->
             <apply>
                 <eq/>
                 <ci>R</ci>
@@ -12057,7 +12057,6 @@ u_out = 0{J_per_m3};-->
                 </apply>
             </apply>
             <!-- Constitutive Relations-->
-            <!-- I = I_scale*rho*l/(pi*sqr(r));-->
             <apply>
                 <eq/>
                 <ci>I</ci>
@@ -12074,12 +12073,13 @@ u_out = 0{J_per_m3};-->
                         <pi/>
                         <apply>
                             <power/>
-                            <ci>r_0</ci>
+                            <ci>r</ci>
                             <cn cellml:units="dimensionless">2</cn>
                         </apply>
                     </apply>
                 </apply>
             </apply>
+            <!--I = I_scale*rho*l/(pi*sqr(r_0));-->
             <apply>
                 <eq/>
                 <ci>R</ci>
@@ -12898,7 +12898,6 @@ u_out = 0{J_per_m3};-->
                 </apply>
             </apply>
             <!-- Constitutive Relations-->
-            <!-- I = I_scale*rho*l/(pi*sqr(r));-->
             <apply>
                 <eq/>
                 <ci>I</ci>
@@ -12915,12 +12914,13 @@ u_out = 0{J_per_m3};-->
                         <pi/>
                         <apply>
                             <power/>
-                            <ci>r_0</ci>
+                            <ci>r</ci>
                             <cn cellml:units="dimensionless">2</cn>
                         </apply>
                     </apply>
                 </apply>
             </apply>
+            <!--I = I_scale*rho*l/(pi*sqr(r_0));-->
             <apply>
                 <eq/>
                 <ci>R</ci>
@@ -14293,12 +14293,13 @@ u_out = 0{J_per_m3};-->
                         <pi/>
                         <apply>
                             <power/>
-                            <ci>r_0</ci>
+                            <ci>r</ci>
                             <cn cellml:units="dimensionless">2</cn>
                         </apply>
                     </apply>
                 </apply>
             </apply>
+            <!--I = I_scale*rho*l/(pi*sqr(r_0));-->
             <apply>
                 <eq/>
                 <ci>R</ci>
@@ -15450,12 +15451,13 @@ u_out = 0{J_per_m3};-->
                         <pi/>
                         <apply>
                             <power/>
-                            <ci>r_0</ci>
+                            <ci>r</ci>
                             <cn cellml:units="dimensionless">2</cn>
                         </apply>
                     </apply>
                 </apply>
             </apply>
+            <!--I = I_scale*rho*l/(pi*sqr(r_0));-->
             <apply>
                 <eq/>
                 <ci>R</ci>
@@ -16758,12 +16760,13 @@ u_out = 0{J_per_m3};-->
                         <pi/>
                         <apply>
                             <power/>
-                            <ci>r_0</ci>
+                            <ci>r</ci>
                             <cn cellml:units="dimensionless">2</cn>
                         </apply>
                     </apply>
                 </apply>
             </apply>
+            <!--I = I_scale*rho*l/(pi*sqr(r_0));-->
             <apply>
                 <eq/>
                 <ci>R</ci>
@@ -17974,12 +17977,13 @@ u_out = 0{J_per_m3};-->
                         <pi/>
                         <apply>
                             <power/>
-                            <ci>r_0</ci>
+                            <ci>r</ci>
                             <cn cellml:units="dimensionless">2</cn>
                         </apply>
                     </apply>
                 </apply>
             </apply>
+            <!--I = I_scale*rho*l/(pi*sqr(r_0));-->
             <apply>
                 <eq/>
                 <ci>R</ci>
@@ -19343,12 +19347,13 @@ u_out = 0{J_per_m3};-->
                         <pi/>
                         <apply>
                             <power/>
-                            <ci>r_0</ci>
+                            <ci>r</ci>
                             <cn cellml:units="dimensionless">2</cn>
                         </apply>
                     </apply>
                 </apply>
             </apply>
+            <!--I = I_scale*rho*l/(pi*sqr(r_0));-->
             <apply>
                 <eq/>
                 <ci>R</ci>

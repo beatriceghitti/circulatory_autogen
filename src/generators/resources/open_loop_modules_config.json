@@ -15,6 +15,7 @@
             "variables":["v", "P"]
           }
         ],
+        "general_ports":[],
         "variables_and_units":
         [
           ["v", "m3_per_s", "access", "variable"],
@@ -38,6 +39,7 @@
             "variables":["v", "P"]
           }
         ],
+        "general_ports":[],
         "variables_and_units":
         [
           ["v", "m3_per_s", "access", "variable"],
@@ -61,6 +63,7 @@
             "variables":["v", "P"]
           }
         ],
+        "general_ports":[],
         "variables_and_units":
         [
           ["v", "m3_per_s", "access", "variable"],
@@ -96,6 +99,7 @@
           "variables":["u"]
         }
       ],
+      "general_ports":[],
       "variables_and_units":
       [
         ["u_in", "J_per_m3", "access", "boundary_condition"],
@@ -141,6 +145,7 @@
           "variables":["u"]
         }
       ],
+      "general_ports":[],
       "variables_and_units":
       [
         ["u_in", "J_per_m3", "access", "boundary_condition"],
