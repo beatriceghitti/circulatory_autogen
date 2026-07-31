@@ -22,18 +22,24 @@ def convert_0d_to_1d(model, folder_0d, param_file_0d, folder_hyb=None, vess_1d_l
         return
 
     folder_0d = Path(folder_0d)
-
-    print(folder_0d)
-    print(folder_hyb)
+    # print(folder_0d)
+    # print(folder_hyb)
 
     if folder_hyb is None:
         folder_hyb = folder_0d
+    # print(folder_hyb)
     
     folder_hyb = Path(folder_hyb)
     if not os.path.exists(folder_hyb):
         os.makedirs(folder_hyb)
+
+    vess_file_0d = folder_0d / f"{model}_0d_vessel_array.csv"
+    if not vess_file_0d.is_file():
+        vess_file_0d = folder_0d / f"{model}_vessel_array.csv"
+        if not vess_file_0d.is_file():
+            sys.exit(f"Error :: Vessel array file {vess_file_0d} not found for model {model}.")
     
-    df_vess = pd.read_csv(folder_0d / f"{model}_0d_vessel_array.csv")
+    df_vess = pd.read_csv(vess_file_0d)
     df_params = pd.read_csv(folder_0d / param_file_0d)
 
     n1d = len(vess_1d_list)
