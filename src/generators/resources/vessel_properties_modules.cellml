@@ -391,6 +391,120 @@
             </apply>
         </math>
     </component>
+    <component name="material_prop_visco_fromPWV_invPower_type">
+        <variable name="t" public_interface="in" units="second"/>
+        <variable name="rho" public_interface="in" units="Js2_per_m5"/>
+        <variable name="m_tube" public_interface="in" units="dimensionless"/>
+        <variable name="n_tube" public_interface="in" units="dimensionless"/>
+        <variable name="l" public_interface="in" units="metre"/>
+        <variable name="r_0" public_interface="in" units="metre"/>
+        <variable name="d_0_adim" public_interface="out" units="dimensionless"/>
+        <variable name="h" public_interface="out" units="metre"/>
+        <variable name="a_coeff" public_interface="in" units="m_per_s"/>
+        <variable name="b_coeff" public_interface="in" units="dimensionless"/>
+        <variable name="c0" public_interface="out" units="m_per_s"/>
+        <variable name="K_m" public_interface="in" units="Js_per_m3"/>
+        <variable name="Gamma" public_interface="out" units="Js_per_m3"/>
+        <variable name="SMvolfrac_art" public_interface="in" units="dimensionless"/>
+        <variable name="K_tube" public_interface="out" units="J_per_m3"/>
+        <variable name="K_tube_visco" public_interface="out" units="Js_per_m6"/>
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <ci>d_0_adim</ci>
+                <apply>
+                    <times/>
+                    <ci>r_0</ci>
+                    <cn cellml:units="mm_per_metre" type="e-notation">1<sep/>3</cn>
+                    <cn cellml:units="per_mm">2.0</cn>
+                </apply>
+            </apply>
+            <!-- conversion from radius [m] to diameter [m] to diameter [mm]-->
+            <apply>
+                <eq/>
+                <ci>c0</ci>
+                <apply>
+                    <divide/>
+                    <ci>a_coeff</ci>
+                    <apply>
+                        <power/>
+                        <ci>d_0_adim</ci>
+                        <ci>b_coeff</ci>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>K_tube</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <ci>rho</ci>
+                        <apply>
+                            <power/>
+                            <ci>c0</ci>
+                            <cn cellml:units="dimensionless">2</cn>
+                        </apply>
+                    </apply>
+                    <apply>
+                        <minus/>
+                        <ci>m_tube</ci>
+                        <ci>n_tube</ci>
+                    </apply>
+                </apply>
+            </apply>
+            <!-- Gamma is the wall viscosity
+ evaluated as the product of the viscoelastic parameter K_m and the volume fraction of smooth muscle SMvolfrac
+ Gamma = 0.1{dimensionless}*K_m;-->
+            <apply>
+                <eq/>
+                <ci>Gamma</ci>
+                <apply>
+                    <times/>
+                    <ci>SMvolfrac_art</ci>
+                    <ci>K_m</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>h</ci>
+                <apply>
+                    <times/>
+                    <cn cellml:units="dimensionless">0.1</cn>
+                    <ci>r_0</ci>
+                </apply>
+            </apply>
+            <!-- 10% of ref radius-->
+            <apply>
+                <eq/>
+                <ci>K_tube_visco</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <cn cellml:units="dimensionless">2</cn>
+                            <cn cellml:units="dimensionless">3</cn>
+                        </apply>
+                        <ci>Gamma</ci>
+                        <ci>h</ci>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>l</ci>
+                        <pi/>
+                        <apply>
+                            <power/>
+                            <ci>r_0</ci>
+                            <cn cellml:units="dimensionless">3</cn>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
+        </math>
+    </component>
     <!--&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;-//
 &#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;- VEINS &#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;//
 &#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;-//-->

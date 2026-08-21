@@ -16,6 +16,11 @@
     <units name="mm">
         <unit prefix="milli" units="metre"/>
     </units>
+    <!-- displacement unit conversion-->
+    <units name="mm_per_metre">
+        <unit units="mm"/>
+        <unit exponent="-1" units="metre"/>
+    </units>
     <!-- area-->
     <units name="m2">
         <unit exponent="2" units="metre"/>
@@ -363,6 +368,9 @@
     </units>
     <units name="per_m">
         <unit exponent="-1" units="metre"/>
+    </units>
+    <units name="per_mm">
+        <unit exponent="-1" units="mm"/>
     </units>
     <units name="per_mM">
         <unit exponent="-1" units="mM"/>
