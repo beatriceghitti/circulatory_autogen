@@ -4941,6 +4941,620 @@
             </apply>
         </math>
     </component>
+    <component name="commoncarotid_flow_BC_type">
+        <variable name="t" public_interface="in" units="second"/>
+        <variable name="T" public_interface="in" units="second"/>
+        <variable name="v" public_interface="out" units="m3_per_s"/>
+        <variable name="v_0" public_interface="out" units="m3_per_s"/>
+        <variable name="P" public_interface="in" units="J_per_m3"/>
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <ci>v_0</ci>
+                <cn cellml:units="m3_per_s" type="e-notation">1.0<sep/>-06</cn>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>v</ci>
+                <apply>
+                    <times/>
+                    <ci>v_0</ci>
+                    <apply>
+                        <minus/>
+                        <apply>
+                            <minus/>
+                            <apply>
+                                <plus/>
+                                <apply>
+                                    <minus/>
+                                    <apply>
+                                        <minus/>
+                                        <apply>
+                                            <minus/>
+                                            <apply>
+                                                <plus/>
+                                                <apply>
+                                                    <minus/>
+                                                    <apply>
+                                                        <minus/>
+                                                        <apply>
+                                                            <plus/>
+                                                            <apply>
+                                                                <minus/>
+                                                                <apply>
+                                                                    <minus/>
+                                                                    <apply>
+                                                                        <minus/>
+                                                                        <apply>
+                                                                            <minus/>
+                                                                            <apply>
+                                                                                <plus/>
+                                                                                <cn cellml:units="dimensionless">6.5</cn>
+                                                                                <apply>
+                                                                                    <times/>
+                                                                                    <cn cellml:units="dimensionless">3.294</cn>
+                                                                                    <apply>
+                                                                                        <sin/>
+                                                                                        <apply>
+                                                                                            <minus/>
+                                                                                            <apply>
+                                                                                                <divide/>
+                                                                                                <apply>
+                                                                                                    <times/>
+                                                                                                    <cn cellml:units="dimensionless">2</cn>
+                                                                                                    <pi/>
+                                                                                                    <ci>t</ci>
+                                                                                                </apply>
+                                                                                                <ci>T</ci>
+                                                                                            </apply>
+                                                                                            <cn cellml:units="dimensionless">0.023974</cn>
+                                                                                        </apply>
+                                                                                    </apply>
+                                                                                </apply>
+                                                                                <apply>
+                                                                                    <times/>
+                                                                                    <cn cellml:units="dimensionless">1.9262</cn>
+                                                                                    <apply>
+                                                                                        <sin/>
+                                                                                        <apply>
+                                                                                            <minus/>
+                                                                                            <apply>
+                                                                                                <divide/>
+                                                                                                <apply>
+                                                                                                    <times/>
+                                                                                                    <cn cellml:units="dimensionless">4</cn>
+                                                                                                    <pi/>
+                                                                                                    <ci>t</ci>
+                                                                                                </apply>
+                                                                                                <ci>T</ci>
+                                                                                            </apply>
+                                                                                            <cn cellml:units="dimensionless">1.1801</cn>
+                                                                                        </apply>
+                                                                                    </apply>
+                                                                                </apply>
+                                                                            </apply>
+                                                                            <apply>
+                                                                                <times/>
+                                                                                <cn cellml:units="dimensionless">1.4219</cn>
+                                                                                <apply>
+                                                                                    <sin/>
+                                                                                    <apply>
+                                                                                        <plus/>
+                                                                                        <apply>
+                                                                                            <divide/>
+                                                                                            <apply>
+                                                                                                <times/>
+                                                                                                <cn cellml:units="dimensionless">6</cn>
+                                                                                                <pi/>
+                                                                                                <ci>t</ci>
+                                                                                            </apply>
+                                                                                            <ci>T</ci>
+                                                                                        </apply>
+                                                                                        <cn cellml:units="dimensionless">0.92701</cn>
+                                                                                    </apply>
+                                                                                </apply>
+                                                                            </apply>
+                                                                        </apply>
+                                                                        <apply>
+                                                                            <times/>
+                                                                            <cn cellml:units="dimensionless">0.66627</cn>
+                                                                            <apply>
+                                                                                <sin/>
+                                                                                <apply>
+                                                                                    <minus/>
+                                                                                    <apply>
+                                                                                        <divide/>
+                                                                                        <apply>
+                                                                                            <times/>
+                                                                                            <cn cellml:units="dimensionless">8</cn>
+                                                                                            <pi/>
+                                                                                            <ci>t</ci>
+                                                                                        </apply>
+                                                                                        <ci>T</ci>
+                                                                                    </apply>
+                                                                                    <cn cellml:units="dimensionless">0.24118</cn>
+                                                                                </apply>
+                                                                            </apply>
+                                                                        </apply>
+                                                                    </apply>
+                                                                    <apply>
+                                                                        <times/>
+                                                                        <cn cellml:units="dimensionless">0.33933</cn>
+                                                                        <apply>
+                                                                            <sin/>
+                                                                            <apply>
+                                                                                <minus/>
+                                                                                <apply>
+                                                                                    <divide/>
+                                                                                    <apply>
+                                                                                        <times/>
+                                                                                        <cn cellml:units="dimensionless">10</cn>
+                                                                                        <pi/>
+                                                                                        <ci>t</ci>
+                                                                                    </apply>
+                                                                                    <ci>T</ci>
+                                                                                </apply>
+                                                                                <cn cellml:units="dimensionless">0.27471</cn>
+                                                                            </apply>
+                                                                        </apply>
+                                                                    </apply>
+                                                                </apply>
+                                                                <apply>
+                                                                    <times/>
+                                                                    <cn cellml:units="dimensionless">0.37914</cn>
+                                                                    <apply>
+                                                                        <sin/>
+                                                                        <apply>
+                                                                            <minus/>
+                                                                            <apply>
+                                                                                <divide/>
+                                                                                <apply>
+                                                                                    <times/>
+                                                                                    <cn cellml:units="dimensionless">12</cn>
+                                                                                    <pi/>
+                                                                                    <ci>t</ci>
+                                                                                </apply>
+                                                                                <ci>T</ci>
+                                                                            </apply>
+                                                                            <cn cellml:units="dimensionless">1.0557</cn>
+                                                                        </apply>
+                                                                    </apply>
+                                                                </apply>
+                                                            </apply>
+                                                            <apply>
+                                                                <times/>
+                                                                <cn cellml:units="dimensionless">0.22396</cn>
+                                                                <apply>
+                                                                    <sin/>
+                                                                    <apply>
+                                                                        <plus/>
+                                                                        <apply>
+                                                                            <divide/>
+                                                                            <apply>
+                                                                                <times/>
+                                                                                <cn cellml:units="dimensionless">14</cn>
+                                                                                <pi/>
+                                                                                <ci>t</ci>
+                                                                            </apply>
+                                                                            <ci>T</ci>
+                                                                        </apply>
+                                                                        <cn cellml:units="dimensionless">1.22</cn>
+                                                                    </apply>
+                                                                </apply>
+                                                            </apply>
+                                                            <apply>
+                                                                <times/>
+                                                                <cn cellml:units="dimensionless">0.1507</cn>
+                                                                <apply>
+                                                                    <sin/>
+                                                                    <apply>
+                                                                        <plus/>
+                                                                        <apply>
+                                                                            <divide/>
+                                                                            <apply>
+                                                                                <times/>
+                                                                                <cn cellml:units="dimensionless">16</cn>
+                                                                                <pi/>
+                                                                                <ci>t</ci>
+                                                                            </apply>
+                                                                            <ci>T</ci>
+                                                                        </apply>
+                                                                        <cn cellml:units="dimensionless">1.0984</cn>
+                                                                    </apply>
+                                                                </apply>
+                                                            </apply>
+                                                            <apply>
+                                                                <times/>
+                                                                <cn cellml:units="dimensionless">0.18735</cn>
+                                                                <apply>
+                                                                    <sin/>
+                                                                    <apply>
+                                                                        <plus/>
+                                                                        <apply>
+                                                                            <divide/>
+                                                                            <apply>
+                                                                                <times/>
+                                                                                <cn cellml:units="dimensionless">18</cn>
+                                                                                <pi/>
+                                                                                <ci>t</ci>
+                                                                            </apply>
+                                                                            <ci>T</ci>
+                                                                        </apply>
+                                                                        <cn cellml:units="dimensionless">0.067483</cn>
+                                                                    </apply>
+                                                                </apply>
+                                                            </apply>
+                                                            <apply>
+                                                                <times/>
+                                                                <cn cellml:units="dimensionless">0.038625</cn>
+                                                                <apply>
+                                                                    <sin/>
+                                                                    <apply>
+                                                                        <plus/>
+                                                                        <apply>
+                                                                            <divide/>
+                                                                            <apply>
+                                                                                <times/>
+                                                                                <cn cellml:units="dimensionless">20</cn>
+                                                                                <pi/>
+                                                                                <ci>t</ci>
+                                                                            </apply>
+                                                                            <ci>T</ci>
+                                                                        </apply>
+                                                                        <cn cellml:units="dimensionless">0.22262</cn>
+                                                                    </apply>
+                                                                </apply>
+                                                            </apply>
+                                                            <apply>
+                                                                <times/>
+                                                                <cn cellml:units="dimensionless">0.012643</cn>
+                                                                <apply>
+                                                                    <sin/>
+                                                                    <apply>
+                                                                        <minus/>
+                                                                        <apply>
+                                                                            <divide/>
+                                                                            <apply>
+                                                                                <times/>
+                                                                                <cn cellml:units="dimensionless">22</cn>
+                                                                                <pi/>
+                                                                                <ci>t</ci>
+                                                                            </apply>
+                                                                            <ci>T</ci>
+                                                                        </apply>
+                                                                        <cn cellml:units="dimensionless">0.10093</cn>
+                                                                    </apply>
+                                                                </apply>
+                                                            </apply>
+                                                        </apply>
+                                                        <apply>
+                                                            <times/>
+                                                            <cn cellml:units="dimensionless">0.0042453</cn>
+                                                            <apply>
+                                                                <sin/>
+                                                                <apply>
+                                                                    <minus/>
+                                                                    <apply>
+                                                                        <divide/>
+                                                                        <apply>
+                                                                            <times/>
+                                                                            <cn cellml:units="dimensionless">24</cn>
+                                                                            <pi/>
+                                                                            <ci>t</ci>
+                                                                        </apply>
+                                                                        <ci>T</ci>
+                                                                    </apply>
+                                                                    <cn cellml:units="dimensionless">1.1044</cn>
+                                                                </apply>
+                                                            </apply>
+                                                        </apply>
+                                                    </apply>
+                                                    <apply>
+                                                        <times/>
+                                                        <cn cellml:units="dimensionless">0.012781</cn>
+                                                        <apply>
+                                                            <sin/>
+                                                            <apply>
+                                                                <minus/>
+                                                                <apply>
+                                                                    <divide/>
+                                                                    <apply>
+                                                                        <times/>
+                                                                        <cn cellml:units="dimensionless">26</cn>
+                                                                        <pi/>
+                                                                        <ci>t</ci>
+                                                                    </apply>
+                                                                    <ci>T</ci>
+                                                                </apply>
+                                                                <cn cellml:units="dimensionless">1.3739</cn>
+                                                            </apply>
+                                                        </apply>
+                                                    </apply>
+                                                </apply>
+                                                <apply>
+                                                    <times/>
+                                                    <cn cellml:units="dimensionless">0.014805</cn>
+                                                    <apply>
+                                                        <sin/>
+                                                        <apply>
+                                                            <plus/>
+                                                            <apply>
+                                                                <divide/>
+                                                                <apply>
+                                                                    <times/>
+                                                                    <cn cellml:units="dimensionless">28</cn>
+                                                                    <pi/>
+                                                                    <ci>t</ci>
+                                                                </apply>
+                                                                <ci>T</ci>
+                                                            </apply>
+                                                            <cn cellml:units="dimensionless">1.2797</cn>
+                                                        </apply>
+                                                    </apply>
+                                                </apply>
+                                                <apply>
+                                                    <times/>
+                                                    <cn cellml:units="dimensionless">0.012249</cn>
+                                                    <apply>
+                                                        <sin/>
+                                                        <apply>
+                                                            <plus/>
+                                                            <apply>
+                                                                <divide/>
+                                                                <apply>
+                                                                    <times/>
+                                                                    <cn cellml:units="dimensionless">30</cn>
+                                                                    <pi/>
+                                                                    <ci>t</ci>
+                                                                </apply>
+                                                                <ci>T</ci>
+                                                            </apply>
+                                                            <cn cellml:units="dimensionless">0.80827</cn>
+                                                        </apply>
+                                                    </apply>
+                                                </apply>
+                                                <apply>
+                                                    <times/>
+                                                    <cn cellml:units="dimensionless">0.0076502</cn>
+                                                    <apply>
+                                                        <sin/>
+                                                        <apply>
+                                                            <plus/>
+                                                            <apply>
+                                                                <divide/>
+                                                                <apply>
+                                                                    <times/>
+                                                                    <cn cellml:units="dimensionless">32</cn>
+                                                                    <pi/>
+                                                                    <ci>t</ci>
+                                                                </apply>
+                                                                <ci>T</ci>
+                                                            </apply>
+                                                            <cn cellml:units="dimensionless">0.40757</cn>
+                                                        </apply>
+                                                    </apply>
+                                                </apply>
+                                                <apply>
+                                                    <times/>
+                                                    <cn cellml:units="dimensionless">0.0030692</cn>
+                                                    <apply>
+                                                        <sin/>
+                                                        <apply>
+                                                            <plus/>
+                                                            <apply>
+                                                                <divide/>
+                                                                <apply>
+                                                                    <times/>
+                                                                    <cn cellml:units="dimensionless">34</cn>
+                                                                    <pi/>
+                                                                    <ci>t</ci>
+                                                                </apply>
+                                                                <ci>T</ci>
+                                                            </apply>
+                                                            <cn cellml:units="dimensionless">0.195</cn>
+                                                        </apply>
+                                                    </apply>
+                                                </apply>
+                                            </apply>
+                                            <apply>
+                                                <times/>
+                                                <cn cellml:units="dimensionless">0.0012271</cn>
+                                                <apply>
+                                                    <sin/>
+                                                    <apply>
+                                                        <minus/>
+                                                        <apply>
+                                                            <divide/>
+                                                            <apply>
+                                                                <times/>
+                                                                <cn cellml:units="dimensionless">36</cn>
+                                                                <pi/>
+                                                                <ci>t</ci>
+                                                            </apply>
+                                                            <ci>T</ci>
+                                                        </apply>
+                                                        <cn cellml:units="dimensionless">1.1371</cn>
+                                                    </apply>
+                                                </apply>
+                                            </apply>
+                                        </apply>
+                                        <apply>
+                                            <times/>
+                                            <cn cellml:units="dimensionless">0.0042581</cn>
+                                            <apply>
+                                                <sin/>
+                                                <apply>
+                                                    <minus/>
+                                                    <apply>
+                                                        <divide/>
+                                                        <apply>
+                                                            <times/>
+                                                            <cn cellml:units="dimensionless">38</cn>
+                                                            <pi/>
+                                                            <ci>t</ci>
+                                                        </apply>
+                                                        <ci>T</ci>
+                                                    </apply>
+                                                    <cn cellml:units="dimensionless">0.92102</cn>
+                                                </apply>
+                                            </apply>
+                                        </apply>
+                                    </apply>
+                                    <apply>
+                                        <times/>
+                                        <cn cellml:units="dimensionless">0.0069785</cn>
+                                        <apply>
+                                            <sin/>
+                                            <apply>
+                                                <minus/>
+                                                <apply>
+                                                    <divide/>
+                                                    <apply>
+                                                        <times/>
+                                                        <cn cellml:units="dimensionless">40</cn>
+                                                        <pi/>
+                                                        <ci>t</ci>
+                                                    </apply>
+                                                    <ci>T</ci>
+                                                </apply>
+                                                <cn cellml:units="dimensionless">1.2364</cn>
+                                            </apply>
+                                        </apply>
+                                    </apply>
+                                </apply>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">0.0085652</cn>
+                                    <apply>
+                                        <sin/>
+                                        <apply>
+                                            <plus/>
+                                            <apply>
+                                                <divide/>
+                                                <apply>
+                                                    <times/>
+                                                    <cn cellml:units="dimensionless">42</cn>
+                                                    <pi/>
+                                                    <ci>t</ci>
+                                                </apply>
+                                                <ci>T</ci>
+                                            </apply>
+                                            <cn cellml:units="dimensionless">1.4539</cn>
+                                        </apply>
+                                    </apply>
+                                </apply>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">0.0081881</cn>
+                                    <apply>
+                                        <sin/>
+                                        <apply>
+                                            <plus/>
+                                            <apply>
+                                                <divide/>
+                                                <apply>
+                                                    <times/>
+                                                    <cn cellml:units="dimensionless">44</cn>
+                                                    <pi/>
+                                                    <ci>t</ci>
+                                                </apply>
+                                                <ci>T</ci>
+                                            </apply>
+                                            <cn cellml:units="dimensionless">0.89599</cn>
+                                        </apply>
+                                    </apply>
+                                </apply>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">0.0056549</cn>
+                                    <apply>
+                                        <sin/>
+                                        <apply>
+                                            <plus/>
+                                            <apply>
+                                                <divide/>
+                                                <apply>
+                                                    <times/>
+                                                    <cn cellml:units="dimensionless">46</cn>
+                                                    <pi/>
+                                                    <ci>t</ci>
+                                                </apply>
+                                                <ci>T</ci>
+                                            </apply>
+                                            <cn cellml:units="dimensionless">0.17623</cn>
+                                        </apply>
+                                    </apply>
+                                </apply>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">0.0026358</cn>
+                                    <apply>
+                                        <sin/>
+                                        <apply>
+                                            <minus/>
+                                            <apply>
+                                                <divide/>
+                                                <apply>
+                                                    <times/>
+                                                    <cn cellml:units="dimensionless">48</cn>
+                                                    <pi/>
+                                                    <ci>t</ci>
+                                                </apply>
+                                                <ci>T</ci>
+                                            </apply>
+                                            <cn cellml:units="dimensionless">1.3003</cn>
+                                        </apply>
+                                    </apply>
+                                </apply>
+                            </apply>
+                            <apply>
+                                <times/>
+                                <cn cellml:units="dimensionless">0.0050868</cn>
+                                <apply>
+                                    <sin/>
+                                    <apply>
+                                        <minus/>
+                                        <apply>
+                                            <divide/>
+                                            <apply>
+                                                <times/>
+                                                <cn cellml:units="dimensionless">50</cn>
+                                                <pi/>
+                                                <ci>t</ci>
+                                            </apply>
+                                            <ci>T</ci>
+                                        </apply>
+                                        <cn cellml:units="dimensionless">0.011056</cn>
+                                    </apply>
+                                </apply>
+                            </apply>
+                        </apply>
+                        <apply>
+                            <times/>
+                            <cn cellml:units="dimensionless">0.0085829</cn>
+                            <apply>
+                                <sin/>
+                                <apply>
+                                    <minus/>
+                                    <apply>
+                                        <divide/>
+                                        <apply>
+                                            <times/>
+                                            <cn cellml:units="dimensionless">52</cn>
+                                            <pi/>
+                                            <ci>t</ci>
+                                        </apply>
+                                        <ci>T</ci>
+                                    </apply>
+                                    <cn cellml:units="dimensionless">0.86463</cn>
+                                </apply>
+                            </apply>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
+        </math>
+    </component>
     <component name="controller_OL_type">
         <variable name="t" public_interface="in" units="second"/>
         <!-- Constitutive parameters-->

@@ -30,7 +30,8 @@
       ["a_vessel", "dimensionless", "no_access", "global_constant"],
       ["b_vessel", "per_m", "no_access", "global_constant"],
       ["c_vessel", "dimensionless", "no_access", "global_constant"],
-      ["d_vessel", "per_m", "no_access", "global_constant"]
+      ["d_vessel", "per_m", "no_access", "global_constant"],
+      ["h_0", "metre", "access", "constant"]
     ]
   },
   {

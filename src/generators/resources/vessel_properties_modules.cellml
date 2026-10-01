@@ -11,44 +11,58 @@
         <variable name="b_vessel" public_interface="in" units="per_m"/>
         <variable name="c_vessel" public_interface="in" units="dimensionless"/>
         <variable name="d_vessel" public_interface="in" units="per_m"/>
+        <variable name="h_0" public_interface="in" units="metre"/>
         <variable name="h" public_interface="out" units="metre"/>
         <variable name="nu" public_interface="in" units="dimensionless"/>
         <variable name="K_tube" public_interface="out" units="J_per_m3"/>
+        <!--h = r_0*(a_vessel*exp(b_vessel*r_0)+c_vessel*exp(d_vessel*r_0));-->
         <math xmlns="http://www.w3.org/1998/Math/MathML">
             <apply>
                 <eq/>
                 <ci>h</ci>
-                <apply>
-                    <times/>
-                    <ci>r_0</ci>
-                    <apply>
-                        <plus/>
+                <piecewise>
+                    <piece>
                         <apply>
                             <times/>
-                            <ci>a_vessel</ci>
+                            <ci>r_0</ci>
                             <apply>
-                                <exp/>
+                                <plus/>
                                 <apply>
                                     <times/>
-                                    <ci>b_vessel</ci>
-                                    <ci>r_0</ci>
+                                    <ci>a_vessel</ci>
+                                    <apply>
+                                        <exp/>
+                                        <apply>
+                                            <times/>
+                                            <ci>b_vessel</ci>
+                                            <ci>r_0</ci>
+                                        </apply>
+                                    </apply>
+                                </apply>
+                                <apply>
+                                    <times/>
+                                    <ci>c_vessel</ci>
+                                    <apply>
+                                        <exp/>
+                                        <apply>
+                                            <times/>
+                                            <ci>d_vessel</ci>
+                                            <ci>r_0</ci>
+                                        </apply>
+                                    </apply>
                                 </apply>
                             </apply>
                         </apply>
                         <apply>
-                            <times/>
-                            <ci>c_vessel</ci>
-                            <apply>
-                                <exp/>
-                                <apply>
-                                    <times/>
-                                    <ci>d_vessel</ci>
-                                    <ci>r_0</ci>
-                                </apply>
-                            </apply>
+                            <leq/>
+                            <ci>h_0</ci>
+                            <cn cellml:units="metre">0.0</cn>
                         </apply>
-                    </apply>
-                </apply>
+                    </piece>
+                    <otherwise>
+                        <ci>h_0</ci>
+                    </otherwise>
+                </piecewise>
             </apply>
             <!--K_tube = 4{dimensionless}/3{dimensionless}*E*h/r_0;-->
             <apply>
