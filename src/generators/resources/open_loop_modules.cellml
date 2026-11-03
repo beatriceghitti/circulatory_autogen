@@ -5555,6 +5555,1676 @@
             </apply>
         </math>
     </component>
+    <component name="adan_Lsubclavian_flow_fourier_BC_type">
+        <variable name="t" public_interface="in" units="second"/>
+        <variable name="T" public_interface="in" units="second"/>
+        <variable name="P" public_interface="in" units="J_per_m3"/>
+        <variable name="v" public_interface="out" units="m3_per_s"/>
+        <variable name="a_0" public_interface="out" units="m3_per_s"/>
+        <variable name="a_1" public_interface="out" units="m3_per_s"/>
+        <variable name="a_2" public_interface="out" units="m3_per_s"/>
+        <variable name="a_3" public_interface="out" units="m3_per_s"/>
+        <variable name="a_4" public_interface="out" units="m3_per_s"/>
+        <variable name="a_5" public_interface="out" units="m3_per_s"/>
+        <variable name="a_6" public_interface="out" units="m3_per_s"/>
+        <variable name="a_7" public_interface="out" units="m3_per_s"/>
+        <variable name="a_8" public_interface="out" units="m3_per_s"/>
+        <variable name="a_9" public_interface="out" units="m3_per_s"/>
+        <variable name="a_10" public_interface="out" units="m3_per_s"/>
+        <variable name="a_11" public_interface="out" units="m3_per_s"/>
+        <variable name="a_12" public_interface="out" units="m3_per_s"/>
+        <variable name="a_13" public_interface="out" units="m3_per_s"/>
+        <variable name="a_14" public_interface="out" units="m3_per_s"/>
+        <variable name="a_15" public_interface="out" units="m3_per_s"/>
+        <variable name="a_16" public_interface="out" units="m3_per_s"/>
+        <variable name="a_17" public_interface="out" units="m3_per_s"/>
+        <variable name="a_18" public_interface="out" units="m3_per_s"/>
+        <variable name="a_19" public_interface="out" units="m3_per_s"/>
+        <variable name="a_20" public_interface="out" units="m3_per_s"/>
+        <variable name="a_21" public_interface="out" units="m3_per_s"/>
+        <variable name="a_22" public_interface="out" units="m3_per_s"/>
+        <variable name="a_23" public_interface="out" units="m3_per_s"/>
+        <variable name="a_24" public_interface="out" units="m3_per_s"/>
+        <variable name="a_25" public_interface="out" units="m3_per_s"/>
+        <variable name="a_26" public_interface="out" units="m3_per_s"/>
+        <variable name="b_1" public_interface="out" units="m3_per_s"/>
+        <variable name="b_2" public_interface="out" units="m3_per_s"/>
+        <variable name="b_3" public_interface="out" units="m3_per_s"/>
+        <variable name="b_4" public_interface="out" units="m3_per_s"/>
+        <variable name="b_5" public_interface="out" units="m3_per_s"/>
+        <variable name="b_6" public_interface="out" units="m3_per_s"/>
+        <variable name="b_7" public_interface="out" units="m3_per_s"/>
+        <variable name="b_8" public_interface="out" units="m3_per_s"/>
+        <variable name="b_9" public_interface="out" units="m3_per_s"/>
+        <variable name="b_10" public_interface="out" units="m3_per_s"/>
+        <variable name="b_11" public_interface="out" units="m3_per_s"/>
+        <variable name="b_12" public_interface="out" units="m3_per_s"/>
+        <variable name="b_13" public_interface="out" units="m3_per_s"/>
+        <variable name="b_14" public_interface="out" units="m3_per_s"/>
+        <variable name="b_15" public_interface="out" units="m3_per_s"/>
+        <variable name="b_16" public_interface="out" units="m3_per_s"/>
+        <variable name="b_17" public_interface="out" units="m3_per_s"/>
+        <variable name="b_18" public_interface="out" units="m3_per_s"/>
+        <variable name="b_19" public_interface="out" units="m3_per_s"/>
+        <variable name="b_20" public_interface="out" units="m3_per_s"/>
+        <variable name="b_21" public_interface="out" units="m3_per_s"/>
+        <variable name="b_22" public_interface="out" units="m3_per_s"/>
+        <variable name="b_23" public_interface="out" units="m3_per_s"/>
+        <variable name="b_24" public_interface="out" units="m3_per_s"/>
+        <variable name="b_25" public_interface="out" units="m3_per_s"/>
+        <variable name="b_26" public_interface="out" units="m3_per_s"/>
+        <variable name="omega_1" public_interface="out" units="per_s"/>
+        <variable name="omega_2" public_interface="out" units="per_s"/>
+        <variable name="omega_3" public_interface="out" units="per_s"/>
+        <variable name="omega_4" public_interface="out" units="per_s"/>
+        <variable name="omega_5" public_interface="out" units="per_s"/>
+        <variable name="omega_6" public_interface="out" units="per_s"/>
+        <variable name="omega_7" public_interface="out" units="per_s"/>
+        <variable name="omega_8" public_interface="out" units="per_s"/>
+        <variable name="omega_9" public_interface="out" units="per_s"/>
+        <variable name="omega_10" public_interface="out" units="per_s"/>
+        <variable name="omega_11" public_interface="out" units="per_s"/>
+        <variable name="omega_12" public_interface="out" units="per_s"/>
+        <variable name="omega_13" public_interface="out" units="per_s"/>
+        <variable name="omega_14" public_interface="out" units="per_s"/>
+        <variable name="omega_15" public_interface="out" units="per_s"/>
+        <variable name="omega_16" public_interface="out" units="per_s"/>
+        <variable name="omega_17" public_interface="out" units="per_s"/>
+        <variable name="omega_18" public_interface="out" units="per_s"/>
+        <variable name="omega_19" public_interface="out" units="per_s"/>
+        <variable name="omega_20" public_interface="out" units="per_s"/>
+        <variable name="omega_21" public_interface="out" units="per_s"/>
+        <variable name="omega_22" public_interface="out" units="per_s"/>
+        <variable name="omega_23" public_interface="out" units="per_s"/>
+        <variable name="omega_24" public_interface="out" units="per_s"/>
+        <variable name="omega_25" public_interface="out" units="per_s"/>
+        <variable name="omega_26" public_interface="out" units="per_s"/>
+        <variable name="v_1" public_interface="out" units="m3_per_s"/>
+        <variable name="v_2" public_interface="out" units="m3_per_s"/>
+        <variable name="v_3" public_interface="out" units="m3_per_s"/>
+        <variable name="v_4" public_interface="out" units="m3_per_s"/>
+        <variable name="v_5" public_interface="out" units="m3_per_s"/>
+        <variable name="v_6" public_interface="out" units="m3_per_s"/>
+        <variable name="v_7" public_interface="out" units="m3_per_s"/>
+        <variable name="v_8" public_interface="out" units="m3_per_s"/>
+        <variable name="v_9" public_interface="out" units="m3_per_s"/>
+        <variable name="v_10" public_interface="out" units="m3_per_s"/>
+        <variable name="v_11" public_interface="out" units="m3_per_s"/>
+        <variable name="v_12" public_interface="out" units="m3_per_s"/>
+        <variable name="v_13" public_interface="out" units="m3_per_s"/>
+        <variable name="v_14" public_interface="out" units="m3_per_s"/>
+        <variable name="v_15" public_interface="out" units="m3_per_s"/>
+        <variable name="v_16" public_interface="out" units="m3_per_s"/>
+        <variable name="v_17" public_interface="out" units="m3_per_s"/>
+        <variable name="v_18" public_interface="out" units="m3_per_s"/>
+        <variable name="v_19" public_interface="out" units="m3_per_s"/>
+        <variable name="v_20" public_interface="out" units="m3_per_s"/>
+        <variable name="v_21" public_interface="out" units="m3_per_s"/>
+        <variable name="v_22" public_interface="out" units="m3_per_s"/>
+        <variable name="v_23" public_interface="out" units="m3_per_s"/>
+        <variable name="v_24" public_interface="out" units="m3_per_s"/>
+        <variable name="v_25" public_interface="out" units="m3_per_s"/>
+        <variable name="v_26" public_interface="out" units="m3_per_s"/>
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <ci>a_0</ci>
+                <cn cellml:units="m3_per_s" type="e-notation">1.1566723515117424<sep/>-05</cn>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>a_1</ci>
+                <cn cellml:units="m3_per_s" type="e-notation">1.9071538986859724<sep/>-06</cn>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>a_2</ci>
+                <apply>
+                    <minus/>
+                    <cn cellml:units="m3_per_s" type="e-notation">3.0724376023248306<sep/>-06</cn>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>a_3</ci>
+                <apply>
+                    <minus/>
+                    <cn cellml:units="m3_per_s" type="e-notation">1.5547405792393137<sep/>-06</cn>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>a_4</ci>
+                <apply>
+                    <minus/>
+                    <cn cellml:units="m3_per_s" type="e-notation">1.7594861489898177<sep/>-06</cn>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>a_5</ci>
+                <apply>
+                    <minus/>
+                    <cn cellml:units="m3_per_s" type="e-notation">1.5018331841634071<sep/>-06</cn>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>a_6</ci>
+                <cn cellml:units="m3_per_s" type="e-notation">2.7319293533502173<sep/>-07</cn>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>a_7</ci>
+                <apply>
+                    <minus/>
+                    <cn cellml:units="m3_per_s" type="e-notation">5.782002130663204<sep/>-07</cn>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>a_8</ci>
+                <cn cellml:units="m3_per_s" type="e-notation">3.914207256412711<sep/>-07</cn>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>a_9</ci>
+                <cn cellml:units="m3_per_s" type="e-notation">3.046307557274922<sep/>-07</cn>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>a_10</ci>
+                <cn cellml:units="m3_per_s" type="e-notation">2.1101010329037881<sep/>-07</cn>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>a_11</ci>
+                <cn cellml:units="m3_per_s" type="e-notation">4.510400139648186<sep/>-07</cn>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>a_12</ci>
+                <apply>
+                    <minus/>
+                    <cn cellml:units="m3_per_s" type="e-notation">2.2619741865131506<sep/>-07</cn>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>a_13</ci>
+                <cn cellml:units="m3_per_s" type="e-notation">5.064999404930487<sep/>-07</cn>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>a_14</ci>
+                <apply>
+                    <minus/>
+                    <cn cellml:units="m3_per_s" type="e-notation">1.4518954862045914<sep/>-07</cn>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>a_15</ci>
+                <cn cellml:units="m3_per_s" type="e-notation">3.764234656515598<sep/>-07</cn>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>a_16</ci>
+                <apply>
+                    <minus/>
+                    <cn cellml:units="m3_per_s" type="e-notation">2.4127377393614364<sep/>-07</cn>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>a_17</ci>
+                <cn cellml:units="m3_per_s" type="e-notation">2.7676918932928753<sep/>-07</cn>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>a_18</ci>
+                <apply>
+                    <minus/>
+                    <cn cellml:units="m3_per_s" type="e-notation">1.7483616585689303<sep/>-07</cn>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>a_19</ci>
+                <apply>
+                    <minus/>
+                    <cn cellml:units="m3_per_s" type="e-notation">6.917084153636004<sep/>-08</cn>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>a_20</ci>
+                <apply>
+                    <minus/>
+                    <cn cellml:units="m3_per_s" type="e-notation">7.68161077100022<sep/>-08</cn>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>a_21</ci>
+                <apply>
+                    <minus/>
+                    <cn cellml:units="m3_per_s" type="e-notation">3.0447745807397194<sep/>-07</cn>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>a_22</ci>
+                <cn cellml:units="m3_per_s" type="e-notation">1.5153096337255556<sep/>-07</cn>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>a_23</ci>
+                <apply>
+                    <minus/>
+                    <cn cellml:units="m3_per_s" type="e-notation">2.771967505057773<sep/>-07</cn>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>a_24</ci>
+                <cn cellml:units="m3_per_s" type="e-notation">3.333578685595244<sep/>-07</cn>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>a_25</ci>
+                <apply>
+                    <minus/>
+                    <cn cellml:units="m3_per_s" type="e-notation">1.551138922904723<sep/>-07</cn>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>a_26</ci>
+                <cn cellml:units="m3_per_s" type="e-notation">1.3050473301550687<sep/>-07</cn>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>b_1</ci>
+                <cn cellml:units="m3_per_s" type="e-notation">5.8502623608170645<sep/>-06</cn>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>b_2</ci>
+                <cn cellml:units="m3_per_s" type="e-notation">4.501434063512644<sep/>-06</cn>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>b_3</ci>
+                <cn cellml:units="m3_per_s" type="e-notation">4.144727582419798<sep/>-08</cn>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>b_4</ci>
+                <cn cellml:units="m3_per_s" type="e-notation">9.119077055990897<sep/>-07</cn>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>b_5</ci>
+                <apply>
+                    <minus/>
+                    <cn cellml:units="m3_per_s" type="e-notation">1.4487619666748675<sep/>-06</cn>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>b_6</ci>
+                <apply>
+                    <minus/>
+                    <cn cellml:units="m3_per_s" type="e-notation">6.607369266902215<sep/>-07</cn>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>b_7</ci>
+                <apply>
+                    <minus/>
+                    <cn cellml:units="m3_per_s" type="e-notation">4.5151000599933086<sep/>-07</cn>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>b_8</ci>
+                <apply>
+                    <minus/>
+                    <cn cellml:units="m3_per_s" type="e-notation">9.314814158913156<sep/>-07</cn>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>b_9</ci>
+                <cn cellml:units="m3_per_s" type="e-notation">8.934174129371792<sep/>-08</cn>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>b_10</ci>
+                <apply>
+                    <minus/>
+                    <cn cellml:units="m3_per_s" type="e-notation">4.5831583737668845<sep/>-07</cn>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>b_11</ci>
+                <cn cellml:units="m3_per_s" type="e-notation">3.2196001440770894<sep/>-07</cn>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>b_12</ci>
+                <apply>
+                    <minus/>
+                    <cn cellml:units="m3_per_s" type="e-notation">1.5665724443676823<sep/>-07</cn>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>b_13</ci>
+                <apply>
+                    <minus/>
+                    <cn cellml:units="m3_per_s" type="e-notation">3.973467206936004<sep/>-08</cn>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>b_14</ci>
+                <cn cellml:units="m3_per_s" type="e-notation">2.337075702566826<sep/>-07</cn>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>b_15</ci>
+                <apply>
+                    <minus/>
+                    <cn cellml:units="m3_per_s" type="e-notation">4.415739168296757<sep/>-08</cn>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>b_16</ci>
+                <cn cellml:units="m3_per_s" type="e-notation">4.231714303481287<sep/>-07</cn>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>b_17</ci>
+                <apply>
+                    <minus/>
+                    <cn cellml:units="m3_per_s" type="e-notation">2.647102409756361<sep/>-07</cn>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>b_18</ci>
+                <cn cellml:units="m3_per_s" type="e-notation">5.11548747180356<sep/>-07</cn>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>b_19</ci>
+                <apply>
+                    <minus/>
+                    <cn cellml:units="m3_per_s" type="e-notation">2.71883017589421<sep/>-07</cn>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>b_20</ci>
+                <cn cellml:units="m3_per_s" type="e-notation">3.9547344901580494<sep/>-07</cn>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>b_21</ci>
+                <apply>
+                    <minus/>
+                    <cn cellml:units="m3_per_s" type="e-notation">3.169874127390117<sep/>-07</cn>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>b_22</ci>
+                <cn cellml:units="m3_per_s" type="e-notation">6.990969935809627<sep/>-08</cn>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>b_23</ci>
+                <apply>
+                    <minus/>
+                    <cn cellml:units="m3_per_s" type="e-notation">1.990964481705783<sep/>-07</cn>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>b_24</ci>
+                <apply>
+                    <minus/>
+                    <cn cellml:units="m3_per_s" type="e-notation">1.0891244792327165<sep/>-08</cn>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>b_25</ci>
+                <cn cellml:units="m3_per_s" type="e-notation">3.833386558305584<sep/>-08</cn>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>b_26</ci>
+                <apply>
+                    <minus/>
+                    <cn cellml:units="m3_per_s" type="e-notation">4.98678595002546<sep/>-08</cn>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>omega_1</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <cn cellml:units="dimensionless">2</cn>
+                        <pi/>
+                        <cn cellml:units="dimensionless">1</cn>
+                    </apply>
+                    <ci>T</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>omega_2</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <cn cellml:units="dimensionless">2</cn>
+                        <pi/>
+                        <cn cellml:units="dimensionless">2</cn>
+                    </apply>
+                    <ci>T</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>omega_3</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <cn cellml:units="dimensionless">2</cn>
+                        <pi/>
+                        <cn cellml:units="dimensionless">3</cn>
+                    </apply>
+                    <ci>T</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>omega_4</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <cn cellml:units="dimensionless">2</cn>
+                        <pi/>
+                        <cn cellml:units="dimensionless">4</cn>
+                    </apply>
+                    <ci>T</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>omega_5</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <cn cellml:units="dimensionless">2</cn>
+                        <pi/>
+                        <cn cellml:units="dimensionless">5</cn>
+                    </apply>
+                    <ci>T</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>omega_6</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <cn cellml:units="dimensionless">2</cn>
+                        <pi/>
+                        <cn cellml:units="dimensionless">6</cn>
+                    </apply>
+                    <ci>T</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>omega_7</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <cn cellml:units="dimensionless">2</cn>
+                        <pi/>
+                        <cn cellml:units="dimensionless">7</cn>
+                    </apply>
+                    <ci>T</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>omega_8</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <cn cellml:units="dimensionless">2</cn>
+                        <pi/>
+                        <cn cellml:units="dimensionless">8</cn>
+                    </apply>
+                    <ci>T</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>omega_9</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <cn cellml:units="dimensionless">2</cn>
+                        <pi/>
+                        <cn cellml:units="dimensionless">9</cn>
+                    </apply>
+                    <ci>T</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>omega_10</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <cn cellml:units="dimensionless">2</cn>
+                        <pi/>
+                        <cn cellml:units="dimensionless">10</cn>
+                    </apply>
+                    <ci>T</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>omega_11</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <cn cellml:units="dimensionless">2</cn>
+                        <pi/>
+                        <cn cellml:units="dimensionless">11</cn>
+                    </apply>
+                    <ci>T</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>omega_12</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <cn cellml:units="dimensionless">2</cn>
+                        <pi/>
+                        <cn cellml:units="dimensionless">12</cn>
+                    </apply>
+                    <ci>T</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>omega_13</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <cn cellml:units="dimensionless">2</cn>
+                        <pi/>
+                        <cn cellml:units="dimensionless">13</cn>
+                    </apply>
+                    <ci>T</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>omega_14</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <cn cellml:units="dimensionless">2</cn>
+                        <pi/>
+                        <cn cellml:units="dimensionless">14</cn>
+                    </apply>
+                    <ci>T</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>omega_15</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <cn cellml:units="dimensionless">2</cn>
+                        <pi/>
+                        <cn cellml:units="dimensionless">15</cn>
+                    </apply>
+                    <ci>T</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>omega_16</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <cn cellml:units="dimensionless">2</cn>
+                        <pi/>
+                        <cn cellml:units="dimensionless">16</cn>
+                    </apply>
+                    <ci>T</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>omega_17</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <cn cellml:units="dimensionless">2</cn>
+                        <pi/>
+                        <cn cellml:units="dimensionless">17</cn>
+                    </apply>
+                    <ci>T</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>omega_18</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <cn cellml:units="dimensionless">2</cn>
+                        <pi/>
+                        <cn cellml:units="dimensionless">18</cn>
+                    </apply>
+                    <ci>T</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>omega_19</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <cn cellml:units="dimensionless">2</cn>
+                        <pi/>
+                        <cn cellml:units="dimensionless">19</cn>
+                    </apply>
+                    <ci>T</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>omega_20</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <cn cellml:units="dimensionless">2</cn>
+                        <pi/>
+                        <cn cellml:units="dimensionless">20</cn>
+                    </apply>
+                    <ci>T</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>omega_21</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <cn cellml:units="dimensionless">2</cn>
+                        <pi/>
+                        <cn cellml:units="dimensionless">21</cn>
+                    </apply>
+                    <ci>T</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>omega_22</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <cn cellml:units="dimensionless">2</cn>
+                        <pi/>
+                        <cn cellml:units="dimensionless">22</cn>
+                    </apply>
+                    <ci>T</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>omega_23</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <cn cellml:units="dimensionless">2</cn>
+                        <pi/>
+                        <cn cellml:units="dimensionless">23</cn>
+                    </apply>
+                    <ci>T</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>omega_24</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <cn cellml:units="dimensionless">2</cn>
+                        <pi/>
+                        <cn cellml:units="dimensionless">24</cn>
+                    </apply>
+                    <ci>T</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>omega_25</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <cn cellml:units="dimensionless">2</cn>
+                        <pi/>
+                        <cn cellml:units="dimensionless">25</cn>
+                    </apply>
+                    <ci>T</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>omega_26</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <cn cellml:units="dimensionless">2</cn>
+                        <pi/>
+                        <cn cellml:units="dimensionless">26</cn>
+                    </apply>
+                    <ci>T</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>v_1</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <ci>a_1</ci>
+                        <apply>
+                            <cos/>
+                            <apply>
+                                <times/>
+                                <ci>omega_1</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>b_1</ci>
+                        <apply>
+                            <sin/>
+                            <apply>
+                                <times/>
+                                <ci>omega_1</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>v_2</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <ci>a_2</ci>
+                        <apply>
+                            <cos/>
+                            <apply>
+                                <times/>
+                                <ci>omega_2</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>b_2</ci>
+                        <apply>
+                            <sin/>
+                            <apply>
+                                <times/>
+                                <ci>omega_2</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>v_3</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <ci>a_3</ci>
+                        <apply>
+                            <cos/>
+                            <apply>
+                                <times/>
+                                <ci>omega_3</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>b_3</ci>
+                        <apply>
+                            <sin/>
+                            <apply>
+                                <times/>
+                                <ci>omega_3</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>v_4</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <ci>a_4</ci>
+                        <apply>
+                            <cos/>
+                            <apply>
+                                <times/>
+                                <ci>omega_4</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>b_4</ci>
+                        <apply>
+                            <sin/>
+                            <apply>
+                                <times/>
+                                <ci>omega_4</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>v_5</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <ci>a_5</ci>
+                        <apply>
+                            <cos/>
+                            <apply>
+                                <times/>
+                                <ci>omega_5</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>b_5</ci>
+                        <apply>
+                            <sin/>
+                            <apply>
+                                <times/>
+                                <ci>omega_5</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>v_6</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <ci>a_6</ci>
+                        <apply>
+                            <cos/>
+                            <apply>
+                                <times/>
+                                <ci>omega_6</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>b_6</ci>
+                        <apply>
+                            <sin/>
+                            <apply>
+                                <times/>
+                                <ci>omega_6</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>v_7</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <ci>a_7</ci>
+                        <apply>
+                            <cos/>
+                            <apply>
+                                <times/>
+                                <ci>omega_7</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>b_7</ci>
+                        <apply>
+                            <sin/>
+                            <apply>
+                                <times/>
+                                <ci>omega_7</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>v_8</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <ci>a_8</ci>
+                        <apply>
+                            <cos/>
+                            <apply>
+                                <times/>
+                                <ci>omega_8</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>b_8</ci>
+                        <apply>
+                            <sin/>
+                            <apply>
+                                <times/>
+                                <ci>omega_8</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>v_9</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <ci>a_9</ci>
+                        <apply>
+                            <cos/>
+                            <apply>
+                                <times/>
+                                <ci>omega_9</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>b_9</ci>
+                        <apply>
+                            <sin/>
+                            <apply>
+                                <times/>
+                                <ci>omega_9</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>v_10</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <ci>a_10</ci>
+                        <apply>
+                            <cos/>
+                            <apply>
+                                <times/>
+                                <ci>omega_10</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>b_10</ci>
+                        <apply>
+                            <sin/>
+                            <apply>
+                                <times/>
+                                <ci>omega_10</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>v_11</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <ci>a_11</ci>
+                        <apply>
+                            <cos/>
+                            <apply>
+                                <times/>
+                                <ci>omega_11</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>b_11</ci>
+                        <apply>
+                            <sin/>
+                            <apply>
+                                <times/>
+                                <ci>omega_11</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>v_12</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <ci>a_12</ci>
+                        <apply>
+                            <cos/>
+                            <apply>
+                                <times/>
+                                <ci>omega_12</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>b_12</ci>
+                        <apply>
+                            <sin/>
+                            <apply>
+                                <times/>
+                                <ci>omega_12</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>v_13</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <ci>a_13</ci>
+                        <apply>
+                            <cos/>
+                            <apply>
+                                <times/>
+                                <ci>omega_13</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>b_13</ci>
+                        <apply>
+                            <sin/>
+                            <apply>
+                                <times/>
+                                <ci>omega_13</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>v_14</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <ci>a_14</ci>
+                        <apply>
+                            <cos/>
+                            <apply>
+                                <times/>
+                                <ci>omega_14</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>b_14</ci>
+                        <apply>
+                            <sin/>
+                            <apply>
+                                <times/>
+                                <ci>omega_14</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>v_15</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <ci>a_15</ci>
+                        <apply>
+                            <cos/>
+                            <apply>
+                                <times/>
+                                <ci>omega_15</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>b_15</ci>
+                        <apply>
+                            <sin/>
+                            <apply>
+                                <times/>
+                                <ci>omega_15</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>v_16</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <ci>a_16</ci>
+                        <apply>
+                            <cos/>
+                            <apply>
+                                <times/>
+                                <ci>omega_16</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>b_16</ci>
+                        <apply>
+                            <sin/>
+                            <apply>
+                                <times/>
+                                <ci>omega_16</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>v_17</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <ci>a_17</ci>
+                        <apply>
+                            <cos/>
+                            <apply>
+                                <times/>
+                                <ci>omega_17</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>b_17</ci>
+                        <apply>
+                            <sin/>
+                            <apply>
+                                <times/>
+                                <ci>omega_17</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>v_18</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <ci>a_18</ci>
+                        <apply>
+                            <cos/>
+                            <apply>
+                                <times/>
+                                <ci>omega_18</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>b_18</ci>
+                        <apply>
+                            <sin/>
+                            <apply>
+                                <times/>
+                                <ci>omega_18</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>v_19</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <ci>a_19</ci>
+                        <apply>
+                            <cos/>
+                            <apply>
+                                <times/>
+                                <ci>omega_19</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>b_19</ci>
+                        <apply>
+                            <sin/>
+                            <apply>
+                                <times/>
+                                <ci>omega_19</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>v_20</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <ci>a_20</ci>
+                        <apply>
+                            <cos/>
+                            <apply>
+                                <times/>
+                                <ci>omega_20</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>b_20</ci>
+                        <apply>
+                            <sin/>
+                            <apply>
+                                <times/>
+                                <ci>omega_20</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>v_21</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <ci>a_21</ci>
+                        <apply>
+                            <cos/>
+                            <apply>
+                                <times/>
+                                <ci>omega_21</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>b_21</ci>
+                        <apply>
+                            <sin/>
+                            <apply>
+                                <times/>
+                                <ci>omega_21</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>v_22</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <ci>a_22</ci>
+                        <apply>
+                            <cos/>
+                            <apply>
+                                <times/>
+                                <ci>omega_22</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>b_22</ci>
+                        <apply>
+                            <sin/>
+                            <apply>
+                                <times/>
+                                <ci>omega_22</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>v_23</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <ci>a_23</ci>
+                        <apply>
+                            <cos/>
+                            <apply>
+                                <times/>
+                                <ci>omega_23</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>b_23</ci>
+                        <apply>
+                            <sin/>
+                            <apply>
+                                <times/>
+                                <ci>omega_23</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>v_24</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <ci>a_24</ci>
+                        <apply>
+                            <cos/>
+                            <apply>
+                                <times/>
+                                <ci>omega_24</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>b_24</ci>
+                        <apply>
+                            <sin/>
+                            <apply>
+                                <times/>
+                                <ci>omega_24</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>v_25</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <ci>a_25</ci>
+                        <apply>
+                            <cos/>
+                            <apply>
+                                <times/>
+                                <ci>omega_25</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>b_25</ci>
+                        <apply>
+                            <sin/>
+                            <apply>
+                                <times/>
+                                <ci>omega_25</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>v_26</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <ci>a_26</ci>
+                        <apply>
+                            <cos/>
+                            <apply>
+                                <times/>
+                                <ci>omega_26</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>b_26</ci>
+                        <apply>
+                            <sin/>
+                            <apply>
+                                <times/>
+                                <ci>omega_26</ci>
+                                <ci>t</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>v</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <divide/>
+                        <ci>a_0</ci>
+                        <cn cellml:units="dimensionless">2.0</cn>
+                    </apply>
+                    <ci>v_1</ci>
+                    <ci>v_2</ci>
+                    <ci>v_3</ci>
+                    <ci>v_4</ci>
+                    <ci>v_5</ci>
+                    <ci>v_6</ci>
+                    <ci>v_7</ci>
+                    <ci>v_8</ci>
+                    <ci>v_9</ci>
+                    <ci>v_10</ci>
+                    <ci>v_11</ci>
+                    <ci>v_12</ci>
+                    <ci>v_13</ci>
+                    <ci>v_14</ci>
+                    <ci>v_15</ci>
+                    <ci>v_16</ci>
+                    <ci>v_17</ci>
+                    <ci>v_18</ci>
+                    <ci>v_19</ci>
+                    <ci>v_20</ci>
+                    <ci>v_21</ci>
+                    <ci>v_22</ci>
+                    <ci>v_23</ci>
+                    <ci>v_24</ci>
+                    <ci>v_25</ci>
+                    <ci>v_26</ci>
+                </apply>
+            </apply>
+        </math>
+    </component>
     <component name="controller_OL_type">
         <variable name="t" public_interface="in" units="second"/>
         <!-- Constitutive parameters-->
