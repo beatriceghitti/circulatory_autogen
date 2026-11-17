@@ -3,6 +3,36 @@ DEBUG: false # TODO change back
 
 # user_inputs_path_override: false
 
+#user_inputs_path_override: /hpc/bghi639/Work/VITALProject/WP2/TASK2.6/ST1_CVSAnatomicalDefinition/virtual-cvs/outputs/pop000_stage1_male_white_CO_5.500e+03_ml_per_min/stage1_model_0d_user_inputs.yaml
+#user_inputs_path_override: /hpc/bghi639/Work/VITALProject/WP2/TASK2.6/ST1_CVSAnatomicalDefinition/virtual-cvs/outputs/pop001a_stage1_male_white_CO_5.500e+03_ml_per_min/stage1_model_0d_user_inputs.yaml
+#user_inputs_path_override: /hpc/bghi639/Work/VITALProject/WP2/TASK2.6/ST1_CVSAnatomicalDefinition/virtual-cvs/outputs/pop001b_stage1_male_white_CO_5.500e+03_ml_per_min/stage1_model_0d_user_inputs.yaml
+#user_inputs_path_override: /hpc/bghi639/Work/VITALProject/WP2/TASK2.6/ST1_CVSAnatomicalDefinition/virtual-cvs/outputs/pop002a_stage1_female_white_CO_4.800e+03_ml_per_min/stage1_model_0d_user_inputs.yaml
+#user_inputs_path_override: /hpc/bghi639/Work/VITALProject/WP2/TASK2.6/ST1_CVSAnatomicalDefinition/virtual-cvs/outputs/pop002b_stage1_female_white_CO_4.800e+03_ml_per_min/stage1_model_0d_user_inputs.yaml
+#user_inputs_path_override: /hpc/bghi639/Work/VITALProject/WP2/TASK2.6/ST1_CVSAnatomicalDefinition/virtual-cvs/outputs/pop003a_stage1_male_white_CO_5.500e+03_ml_per_min/stage1_model_0d_user_inputs.yaml
+#user_inputs_path_override: /hpc/bghi639/Work/VITALProject/WP2/TASK2.6/ST1_CVSAnatomicalDefinition/virtual-cvs/outputs/pop003b_stage1_male_white_CO_5.500e+03_ml_per_min/stage1_model_0d_user_inputs.yaml
+#user_inputs_path_override: /hpc/bghi639/Work/VITALProject/WP2/TASK2.6/ST1_CVSAnatomicalDefinition/virtual-cvs/outputs/pop003c_stage1_male_white_CO_5.500e+03_ml_per_min/stage1_model_0d_user_inputs.yaml
+#user_inputs_path_override: /hpc/bghi639/Work/VITALProject/WP2/TASK2.6/ST1_CVSAnatomicalDefinition/virtual-cvs/outputs/pop003d_stage1_male_white_CO_5.500e+03_ml_per_min/stage1_model_0d_user_inputs.yaml
+#user_inputs_path_override: /hpc/bghi639/Work/VITALProject/WP2/TASK2.6/ST1_CVSAnatomicalDefinition/virtual-cvs/outputs/pop003e_stage1_male_white_CO_5.500e+03_ml_per_min/stage1_model_0d_user_inputs.yaml
+
+#user_inputs_path_override: /hpc/bghi639/Work/VITALProject/WP2/TASK2.6/ST1_CVSAnatomicalDefinition/virtual-cvs/outputs/pop005_stage1_male_white_varCO_ml_per_min/stage1_model_0d_user_inputs.yaml
+#user_inputs_path_override: /hpc/bghi639/Work/VITALProject/WP2/TASK2.6/ST1_CVSAnatomicalDefinition/virtual-cvs/outputs/pop005a_stage1_male_white_varCO_ml_per_min/stage1_model_0d_user_inputs.yaml
+#user_inputs_path_override: /hpc/bghi639/Work/VITALProject/WP2/TASK2.6/ST1_CVSAnatomicalDefinition/virtual-cvs/outputs/pop005b_stage1_male_white_varCO_ml_per_min/stage1_model_0d_user_inputs.yaml
+#user_inputs_path_override: /hpc/bghi639/Work/VITALProject/WP2/TASK2.6/ST1_CVSAnatomicalDefinition/virtual-cvs/outputs/pop006_stage1_female_white_varCO_ml_per_min/stage1_model_0d_user_inputs.yaml
+#user_inputs_path_override: /hpc/bghi639/Work/VITALProject/WP2/TASK2.6/ST1_CVSAnatomicalDefinition/virtual-cvs/outputs/pop006a_stage1_female_white_varCO_ml_per_min/stage1_model_0d_user_inputs.yaml
+#user_inputs_path_override: /hpc/bghi639/Work/VITALProject/WP2/TASK2.6/ST1_CVSAnatomicalDefinition/virtual-cvs/outputs/pop006b_stage1_female_white_varCO_ml_per_min/stage1_model_0d_user_inputs.yaml
+
+#user_inputs_path_override: /hpc/bghi639/Work/VITALProject/ABI-EPFL-UM-1D-benchmarking/O3-0D-1D-comp/commoncarotid_0d/commoncarotid_0d_user_inputs.yaml
+#user_inputs_path_override: /hpc/bghi639/Work/VITALProject/ABI-EPFL-UM-1D-benchmarking/O3-0D-1D-comp/commoncarotid_0d/commoncarotid_0d_nonlinear_user_inputs.yaml
+#user_inputs_path_override: /hpc/bghi639/Work/VITALProject/ABI-EPFL-UM-1D-benchmarking/O3-0D-1D-comp/commoncarotid_split_0d/commoncarotid_split_0d_user_inputs.yaml
+#user_inputs_path_override: /hpc/bghi639/Work/VITALProject/ABI-EPFL-UM-1D-benchmarking/O3-0D-1D-comp/aorticbif_0d/aorticbif_0d_user_inputs.yaml
+#user_inputs_path_override: /hpc/bghi639/Work/VITALProject/ABI-EPFL-UM-1D-benchmarking/O3-0D-1D-comp/aorticbif_0d/aorticbif_0d_nonlinear_user_inputs.yaml
+#user_inputs_path_override: /hpc/bghi639/Work/VITALProject/ABI-EPFL-UM-1D-benchmarking/O3-0D-1D-comp/aorta_wbranches_0d/aorta_wbranches_0d_user_inputs.yaml
+
+#user_inputs_path_override: /hpc/bghi639/Work/VITALProject/WP2/TASK2.6/ST1_CVSAnatomicalDefinition/Converting_vascular_connectivity_graphs_into_BG_CellML_models/aorticbif/aorticbif_user_inputs.yaml
+#user_inputs_path_override: /hpc/bghi639/Work/VITALProject/WP2/TASK2.6/ST1_CVSAnatomicalDefinition/Converting_vascular_connectivity_graphs_into_BG_CellML_models/aorta_w3branches_v2/aorta_w3branches_v2_user_inputs.yaml
+#user_inputs_path_override: /hpc/bghi639/Work/VITALProject/WP2/TASK2.6/ST1_CVSAnatomicalDefinition/Converting_vascular_connectivity_graphs_into_BG_CellML_models/leftarm_vess_cont/leftarm_vess_cont_user_inputs.yaml
+user_inputs_path_override: /hpc/bghi639/Work/VITALProject/WP2/TASK2.6/ST1_CVSAnatomicalDefinition/Converting_vascular_connectivity_graphs_into_BG_CellML_models/leftarm_vess_cont_new/leftarm_vess_cont_new_user_inputs.yaml
+
 # user_inputs_path_override: /home/bghi639/Software/circulatory_autogen_TUTORIAL/trainingschool01/20250318-day01/simple_physiological_nonlinear_visco/simple_physiological_user_inputs.yaml
 # user_inputs_path_override: /home/bghi639/Software/circulatory_autogen_TUTORIAL/trainingschool01/20250320-day03/smc_with_piezo/smc_with_piezo_user_inputs.yaml
 # user_inputs_path_override: /home/bghi639/Software/circulatory_autogen_TUTORIAL/trainingschool01/20250321-day04/coupled_CVS_smc/coupled_CVS_smc_user_inputs.yaml
@@ -51,7 +81,12 @@ DEBUG: false # TODO change back
 # user_inputs_path_override: /hpc/bghi639/Software/VITAL_TrainingSchool2_Tutorials/cvs_model_hybrid_OL/cvs_model_hybrid_OL_user_inputs.yaml
 # user_inputs_path_override: /hpc/bghi639/Software/VITAL_TrainingSchool2_Tutorials/cvs_model_with_arm_0d/cvs_model_with_arm_0d_user_inputs.yaml
 # user_inputs_path_override: /hpc/bghi639/Software/VITAL_TrainingSchool2_Tutorials/cvs_model_with_arm_0d_cpp/cvs_model_with_arm_0d_user_inputs.yaml
-user_inputs_path_override: /hpc/bghi639/Software/VITAL_TrainingSchool2_Tutorials/cvs_model_with_arm_hybrid/cvs_model_with_arm_hybrid_user_inputs.yaml
+# user_inputs_path_override: /hpc/bghi639/Software/VITAL_TrainingSchool2_Tutorials/cvs_model_with_arm_hybrid/cvs_model_with_arm_hybrid_user_inputs.yaml
+
+# user_inputs_path_override: /hpc/bghi639/Software/abi-animus-lab-tutorials/tutorial_2_5_Argus_Ghitti_Davis/cvs_model_0d/cvs_model_0d_user_inputs.yaml
+# user_inputs_path_override: /hpc/bghi639/Software/abi-animus-lab-tutorials/tutorial_2_5_Argus_Ghitti_Davis/cvs_model_hybrid/cvs_model_hybrid_user_inputs.yaml
+
+# user_inputs_path_override: /hpc/bghi639/Software/arborizer_simple_model/arborizer_simple_model_user_inputs.yaml
 
 # file_prefix: 3compartment
 # file_prefix: aortic_bif_0d
