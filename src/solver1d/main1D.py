@@ -27,7 +27,7 @@ import numerics as numerics
 import bcs as bcs
 import windkessel as wdkl
 import auxCouplingFunctions as coupling
-import auxPipeFunctions as pipe
+import auxMPIFunctions as mpicpl
 
 PETSC_SOLVER = "CN"     # Crank-Nicolson
 # PETSC_SOLVER = "BDF1"   # BDF o1 (Backward Euler)
@@ -60,6 +60,12 @@ def run1DBFmod(AICstate=[], QICstate=[]):
     is_coupled = len(sys.argv) > 1 and sys.argv[1] == "1"
     print('1d solver :: is_coupled : ', is_coupled)
 
+    cpl = None
+    if is_coupled:
+        # Join the coupled MPI job (collective with the coupler and the 0d solver) before anything
+        # else, so that any later error aborts the whole job instead of leaving the others waiting.
+        cpl = mpicpl.MPICoupling1D()
+
     print("1d solver :: input arguments")
     for i, arg in enumerate(sys.argv):
         print(f"arg[{i}]: {repr(arg)}")
@@ -88,7 +94,6 @@ def run1DBFmod(AICstate=[], QICstate=[]):
     ODEsolver = None
     T0 = 0.
     nCC = 0
-    pipePath = None
     initStatePath = "None"
     initStatesFile = "None"
     initVarsFile = "None"
@@ -96,9 +101,8 @@ def run1DBFmod(AICstate=[], QICstate=[]):
         ODEsolver = sys.argv[2]
         T0 = float(sys.argv[3])
         nCC = int(sys.argv[4])
-        pipePath = sys.argv[6]
-        
-        initStatePath = sys.argv[7]
+
+        initStatePath = sys.argv[6]
         initStatesFile = initStatePath + "sol0D_states.txt"
         initVarsFile = initStatePath + "sol0D_variables.txt"
     else:
@@ -110,20 +114,13 @@ def run1DBFmod(AICstate=[], QICstate=[]):
     inputFoldName = config.get('network', 'inputFoldName', fallback='input_files')
     inputFold = testFold+'/'+inputFoldName+'/'
 
-    #XXX
-    write_pipe_dt = None
-    read_pipe_dt = None
-    write_pipe = None
-    read_pipe = None
-    write_pipe_vol = None
-
     couple_volume_sum = config.getboolean('network', 'compute_tot_volume', fallback=False)
    
     N1d0dTot = 0
     N1d0d = 0
     pipe_1d_0d_info = {}
-    FLOAT_SIZE = 8  # size of float64 in bytes
-    DATA_LENGTH = 0 
+    DATA_LENGTH = 0
+    tolTime_coupler = None
     if is_coupled:
         with open(inputFold+networkName+'_coupler1d0d.json', "r") as file:
             pipe_1d_0d_info = json.load(file)
@@ -139,13 +136,13 @@ def run1DBFmod(AICstate=[], QICstate=[]):
             else:
                 N1d0d +=1
         
-        DATA_LENGTH = 2 # number of elements in the array
+        DATA_LENGTH = mpicpl.DATA_LENGTH # number of elements in the array (2)
         # no need to transfer dt for each 1d-0d coupling pair
-        # as we have introduced a dedicated pipe to transfer time level and time step
+        # as we have introduced dedicated messages to transfer time level and time step
 
-        write_pipe_dt, read_pipe_dt, write_pipe, read_pipe, write_pipe_vol = pipe.openPipes(pipePath, N1d0d, couple_volume_sum)
-        if write_pipe_dt==None:
-            return 1
+        # check that the coupler (and so the 0d solver) agrees on the coupling layout,
+        # and get the time tolerance shared by the coupler and the 0d solver
+        tolTime_coupler = cpl.handshake(N1d0d, couple_volume_sum, T0, nCC)
 
 
     # [units conversion factors]
@@ -199,6 +196,12 @@ def run1DBFmod(AICstate=[], QICstate=[]):
     tIni = config.getfloat('discretization', 'tIni', fallback=0.0)
     # tolTime = 1e-11
     tolTime = config.getfloat('discretization', 'tolTime', fallback=1e-11) # 1e-10 # 1e-11 # 1e-13
+    if is_coupled:
+        # coupled run: use the same time tolerance as the coupler and the 0d solver (COUPLING_TOL_TIME)
+        if config.has_option('discretization', 'tolTime') and tolTime != tolTime_coupler:
+            print(f"1d solver :: WARNING: tolTime {tolTime} in {init_file} is ignored in a coupled run, "
+                  f"using the coupler's {tolTime_coupler}")
+        tolTime = tolTime_coupler
     if nCC>0:
         tEndGlob = nCC*T0
     else:
@@ -961,10 +964,9 @@ def run1DBFmod(AICstate=[], QICstate=[]):
 
         one_data_vol = np.zeros(DATA_LENGTH, dtype=np.float64)
         one_data_vol[0] = VsumTot
-        write_pipe_vol.write(one_data_vol.tobytes())
-        write_pipe_vol.flush()
+        cpl.send_vol(one_data_vol)
 
-   
+
     # store the numerical solution at initial time
     for i in range(nVess):
         if np.abs(tIni-tSaveIni)<=tolTime:
@@ -1024,11 +1026,7 @@ def run1DBFmod(AICstate=[], QICstate=[]):
                 dt0D = -1.0
                 # matching global time step between 1d and 0d
                 # wait for and read 0d time step data from coupler
-                parent_data_bytes = read_pipe_dt.read(FLOAT_SIZE * DATA_LENGTH)
-                if len(parent_data_bytes) != FLOAT_SIZE * DATA_LENGTH:
-                    sys.exit(f"Error: Expected {FLOAT_SIZE * DATA_LENGTH} bytes but got {len(parent_data_bytes)} for time step read pipe", file=sys.stderr)
-                
-                parent_data_dt = np.frombuffer(parent_data_bytes, dtype=np.float64)
+                parent_data_dt = cpl.recv_step_dt()
                 dt0D = parent_data_dt[1]
                 
                 dt = np.minimum(dt,dt0D)
@@ -1039,8 +1037,7 @@ def run1DBFmod(AICstate=[], QICstate=[]):
                 one_data_dt[0] = time
                 one_data_dt[1] = dt
                 # send back time step to 0d solver
-                write_pipe_dt.write(one_data_dt.tobytes())
-                write_pipe_dt.flush()
+                cpl.send_step_dt(one_data_dt)
 
                 print("1d solver :: IT : %i" % it, " || time : %.8e" % time, " || dt : %.8e" % dt)
                 
@@ -1060,18 +1057,13 @@ def run1DBFmod(AICstate=[], QICstate=[]):
                 count = 0
                 while True:
                     # wait for and read 0d solver internal time step data from coupler
-                    parent_data_bytes = read_pipe_dt.read(FLOAT_SIZE * DATA_LENGTH)
-                    if len(parent_data_bytes) != FLOAT_SIZE * DATA_LENGTH:
-                        sys.exit(f"Error: Expected {FLOAT_SIZE * DATA_LENGTH} bytes but got {len(parent_data_bytes)} for time step read pipe", file=sys.stderr)
-                    
-                    parent_data_dt = np.frombuffer(parent_data_bytes, dtype=np.float64)
+                    parent_data_dt = cpl.recv_dt()
                     timeLoc = parent_data_dt[0]
                     dtLoc = parent_data_dt[1]
 
                     if dtLoc<0.:
                         # print(f"1d solver :: Received negative 0d internal time step dtLoc {dtLoc}")
-                        write_pipe_dt.write(parent_data_dt.tobytes())
-                        write_pipe_dt.flush()
+                        cpl.send_dt(parent_data_dt)
                         break
                     
                     
@@ -1090,21 +1082,19 @@ def run1DBFmod(AICstate=[], QICstate=[]):
                     parent_data = []
                     one_data = []
 
+                    # wait for and read data from coupler for all 1d-0d connections (one message)
+                    # one row per 1d-0d connection
+                    parent_data_all = cpl.recv_data()
+
                     for i in range(N1d0d):
                         pipeID = str(i+1)
                         if "port_volume_sum" in pipe_1d_0d_info[pipeID]:
                             if pipe_1d_0d_info[pipeID]["port_volume_sum"] == 1:
-                                print("ERROR :: this is a volume sum port, use its dedicated pipes for this connection. Exiting.")
+                                print("ERROR :: this is a volume sum port, use its dedicated messages for this connection. Exiting.")
                                 sys.exit()
-                        
-                        # wait for and read data from coupler for each 1d-0d connection
-                        # Read data as numpy array
-                        parent_data_bytes = read_pipe[i].read(FLOAT_SIZE * DATA_LENGTH)
-                        if len(parent_data_bytes) != FLOAT_SIZE * DATA_LENGTH:
-                            sys.exit(f"Error: Expected {FLOAT_SIZE * DATA_LENGTH} bytes but got {len(parent_data_bytes)} for pipe "+pipeID, file=sys.stderr)
-                        
-                        parent_data.append( np.frombuffer(parent_data_bytes, dtype=np.float64) )
-                        
+
+                        parent_data.append( parent_data_all[i] )
+
                     if FVord==2:
                         if ODEsolver=="CVODE":
                             # # dtEvol = (timeLoc+dtLoc)-time
@@ -1243,12 +1233,8 @@ def run1DBFmod(AICstate=[], QICstate=[]):
                         if type_0Dport==1: # 0d flow bc / pressure port 
                             one_data[i][0] = Q0D*convQ # sending back computed flow rate
                         elif type_0Dport==0: # 0d pressure bc / flow port
-                            one_data[i][0] = P0D*convP # sending back computed pressure 
-                    
-                        # write and send to coupler data with computed 0d coupling variables for each 1d-0d connection
-                        # Write the numpy array as binary
-                        write_pipe[i].write(one_data[i].tobytes())
-                        write_pipe[i].flush()
+                            one_data[i][0] = P0D*convP # sending back computed pressure
+                        # one_data[i] is sent to the coupler after this loop, together with all the other 1d-0d connections
 
                         if FVord==1:
                             if (ODEsolver=="explEul" and count==0):
@@ -1357,6 +1343,9 @@ def run1DBFmod(AICstate=[], QICstate=[]):
                             else:
                                 sys.exit("FVord=2 + ODEsolver="+str(ODEsolver)+" with count "+str(count))
 
+                    # write and send to coupler data with computed 0d coupling variables for all 1d-0d connections (one message)
+                    cpl.send_data(np.array(one_data, dtype=np.float64).reshape(N1d0d, DATA_LENGTH))
+
                     count +=1
 
                 couplingFunc.solve_time_step_1D(time, dt, T0, v, T, Idxs1D, IdxsJhyb, IdxsTerm, nVess, nNode, nVar1D, FVord, numFlux, slopeType, termType, K, A0, mu, mTL, nTL, vessP0, Rwk1, Cwk, Rwk2, Pv, is_coupled)
@@ -1371,8 +1360,7 @@ def run1DBFmod(AICstate=[], QICstate=[]):
 
                     one_data_vol = np.zeros(DATA_LENGTH, dtype=np.float64)
                     one_data_vol[0] = VsumTot
-                    write_pipe_vol.write(one_data_vol.tobytes())
-                    write_pipe_vol.flush()
+                    cpl.send_vol(one_data_vol)
 
             # UPDATE TIME
             it +=1
@@ -1412,12 +1400,9 @@ def run1DBFmod(AICstate=[], QICstate=[]):
 
 
     if is_coupled:
-        pipe.closePipes(write_pipe_dt, 1)
-        pipe.closePipes(read_pipe_dt, 1)
-        pipe.closePipes(write_pipe, N1d0d)
-        pipe.closePipes(read_pipe, N1d0d)
-        pipe.closePipes(write_pipe_vol, 1)
-        print("### 1d solver :: All pipes closed. ###")
+        # tell the coupler that the 1d solver has completed its time loop (this replaces closing the pipes)
+        cpl.finalize(time)
+        print("### 1d solver :: MPI coupling finalised. ###")
     
     for i in range(nVess):
         v[i].outFile1.close()
@@ -1439,5 +1424,12 @@ def run1DBFmod(AICstate=[], QICstate=[]):
 
 if __name__=='__main__':
     # HOW TO EXECUTE: python main1D.py "<path_to_file>/input.ini"
-    run1DBFmod()
+    # Coupled runs are launched with mpirun together with the coupler, see src/coupler/launch_coupled_mpi.bash
+    try:
+        run1DBFmod()
+    except BaseException:
+        # includes sys.exit()/exit(): in a coupled run, abort the whole MPI job, otherwise
+        # the coupler and the 0d solver would wait forever for this solver
+        mpicpl.abort_if_active()
+        raise
   
