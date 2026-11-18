@@ -80,7 +80,6 @@ def run1DBFmod(AICstate=[], QICstate=[]):
     if init_file is None:
         print(f"1d solver :: Error: path to 1d simulation initialisation file is {init_file}. Exiting.")
         exit()
-
     if not os.path.exists(init_file):
         print(f"1d solver :: Error: 1d simulation initialisation file {init_file} does not exist. Exiting.")
         exit()

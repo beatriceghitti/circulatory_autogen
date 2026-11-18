@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 """
 MPI communication between the 1d solver (main1D.py) and the 1d-0d coupler (src/coupler/coupler.cpp).
-It replaces the named pipes previously used (auxPipeFunctions.py).
 
 The coupler, the 0d solver and this 1d solver are started together by a single mpirun
 (MPMD launch, see src/coupler/launch_coupled_mpi.bash). All messages go through the coupler.
@@ -55,7 +54,8 @@ class MPICoupling1D:
         print(f"1d solver :: MPI coupling initialised, coupler is world rank {self.coupler}", flush=True)
 
     def handshake(self, N1d0d, couple_volume_sum, T0, nCC):
-        """Receive the coupling layout from the coupler and check that it matches ours.
+        """
+        Receive the coupling layout from the coupler and check that it matches ours.
 
         Returns the time tolerance of the coupler (COUPLING_TOL_TIME in coupler_mpi_common.h),
         which the 1d solver must use in a coupled run.
@@ -131,10 +131,9 @@ class MPICoupling1D:
 
 
 def abort_if_active(code=1):
-    """Abort the MPI job if a coupling is active and not finalised yet.
-
-    With the named pipes, a 1d solver that stopped early closed its pipes and the other programs
-    saw an end-of-file. With MPI, the coupler and the 0d solver would instead wait forever.
+    """
+    Abort the MPI job if a coupling is active and not finalised yet.
+    Otherwise, the coupler and the 0d solver would instead wait forever.
     """
     if _active_coupling is not None:
         _active_coupling.abort("1d solver :: Error: terminated before the end of the coupled simulation, "
