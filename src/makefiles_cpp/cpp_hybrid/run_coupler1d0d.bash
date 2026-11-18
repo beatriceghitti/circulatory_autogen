@@ -1,13 +1,15 @@
-#!/bin/bash 
+#!/bin/bash
 
 ### safer to specify absolute paths only
 # FOLDERcoupler="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 FOLDERcoupler=""
-FOLDERpipes=""
-mkdir -p "$FOLDERpipes"
 FOLDERcpp=""
 FILEconfig="coupler_config.json"
 USE_PETSC=0
+
+### The coupler, the 0d solver and the 1d solver communicate through MPI: they must all use the
+### same MPI installation (mpic++/mpicxx, mpirun, and the mpi4py of the Python set in $FILEconfig).
+### On a cluster, load the MPI module first, e.g. 'module load mpi/openmpi-x86_64'.
 
 cd "$FOLDERcpp" || exit 1
 
@@ -25,18 +27,16 @@ fi
 cd "$FOLDERcoupler" || exit 1
 
 make -f MakefileCoupler clean
-make -f MakefileCoupler clean_pipe PIPE_DIR="$FOLDERpipes"
 make -f MakefileCoupler
 
 
 echo "*** RUNNING THE COUPLER NOW ***"
 
-./coupler "$FOLDERcpp/$FILEconfig"
-# ./coupler "$FOLDERcpp/$FILEconfig" > log_$(date +'%Y-%m-%d_%H-%M-%S').txt
-# ./coupler "$FOLDERcpp/$FILEconfig" > log_$(date +'%Y-%m-%d_%H-%M-%S').txt & 
-# ./coupler "$FOLDERcpp/$FILEconfig" > log_$(date +'%Y-%m-%d_%H-%M-%S').txt 2>&1 &
-
-### clean up when done
-rm -rf "$FOLDERpipes"
+### launch coupler, 0d solver and 1d solver together with mpirun (1 MPI rank each).
+### Extra mpirun options can be appended, e.g. --oversubscribe if fewer than 3 cores/slots are available.
+./launch_coupled_mpi.bash "$FOLDERcpp/$FILEconfig"
+# ./launch_coupled_mpi.bash "$FOLDERcpp/$FILEconfig" > log_$(date +'%Y-%m-%d_%H-%M-%S').txt
+# ./launch_coupled_mpi.bash "$FOLDERcpp/$FILEconfig" > log_$(date +'%Y-%m-%d_%H-%M-%S').txt &
+# ./launch_coupled_mpi.bash "$FOLDERcpp/$FILEconfig" > log_$(date +'%Y-%m-%d_%H-%M-%S').txt 2>&1 &
 
 echo "*** SUCCESS $(date +'%Y-%m-%d_%H-%M-%S') ***"

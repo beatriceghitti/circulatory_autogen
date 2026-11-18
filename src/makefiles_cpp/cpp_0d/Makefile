@@ -28,6 +28,9 @@ OBJS := $(OBJS:.cc=.o)
 # Output/target binary
 TARGET = model0d
 
+# Build rules
+.PHONY: all clean
+
 all: $(TARGET)
 
 # Link target	
@@ -43,4 +46,3 @@ $(TARGET): $(OBJS)
 # Clean
 clean:
 	rm -f $(OBJS) $(TARGET)
-

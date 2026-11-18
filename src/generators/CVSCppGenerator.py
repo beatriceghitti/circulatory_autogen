@@ -36,6 +36,10 @@ from rdflib import Graph, Literal, RDF, URIRef
 from rdflib.namespace import DCTERMS
 from urllib.parse import urlparse
 
+TOL_TIME = 1e-11 # 1e-13; time tolerance of fully 0d models only (coupled models use COUPLING_TOL_TIME from coupler_mpi_common.h)
+REL_TOL = 1e-7
+ABS_TOL = 1e-9
+
 class CVS0DCppGenerator(object):
     '''
     Generates Cpp files from CellML files and annotations for a 0D model
@@ -295,8 +299,7 @@ class CVS0DCppGenerator(object):
                                 if exit_port["port_type"] == "vessel_port":
 
                                     if (('aorta' in out_vessel or 'aortic_root' in out_vessel) and exit_port["variables"][1] == 'u_root'):
-                                        self.connection_vessel_inlet_or_outlet.append("outlet") 
-                                        # self.connection_vessel_indices.append(fv1d_vessel_index) #XXX Bea: I think this was copied by mistake from above
+                                        self.connection_vessel_inlet_or_outlet.append("outlet")
                                         if vessel_tup.BC_type[1] == 'v':
                                             self.connection_vessel_flow_or_pressure_bc.append("flow") 
                                             self.port_input_variables.append(self.cellml_model.component(vessel_tup.name \
@@ -314,8 +317,7 @@ class CVS0DCppGenerator(object):
                                                 "1D FV model")
                                             
                                     elif ('par' in out_vessel and exit_port["variables"][1] == 'u_par'):
-                                        self.connection_vessel_inlet_or_outlet.append("outlet") 
-                                        # self.connection_vessel_indices.append(fv1d_vessel_index) #XXX Bea: I think this was copied by mistake from above
+                                        self.connection_vessel_inlet_or_outlet.append("outlet")
                                         if vessel_tup.BC_type[1] == 'v':
                                             self.connection_vessel_flow_or_pressure_bc.append("flow") 
                                             self.port_input_variables.append(self.cellml_model.component(vessel_tup.name \
@@ -351,8 +353,7 @@ class CVS0DCppGenerator(object):
                             FV_resistance_port = -1
                             for exit_port in vessel_tup.exit_ports:
                                 if exit_port["port_type"] == "vessel_port":
-                                    self.connection_vessel_inlet_or_outlet.append("outlet") 
-                                    # self.connection_vessel_indices.append(fv1d_vessel_index) #XXX Bea: I think this was copied by mistake from above
+                                    self.connection_vessel_inlet_or_outlet.append("outlet")
                                     if vessel_tup.BC_type[1] == 'v':
                                         self.connection_vessel_flow_or_pressure_bc.append("flow") 
                                         self.port_input_variables.append(self.cellml_model.component(vessel_tup.name \
@@ -688,7 +689,15 @@ class CVS0DCppGenerator(object):
     def generate_cpp(self):
 
         print("now Cpp generation can finally starts")
-        
+
+        # time tolerance written in the generated code: a coupled 0d model must use the same value as the coupler,
+        # so it takes it from coupler_mpi_common.h (included only when coupled); a fully 0d model has no coupler,
+        # no MPI and no such header, so it gets the value of TOL_TIME.
+        if self.couple_to_1d:
+            tol_time_cpp = 'COUPLING_TOL_TIME'
+        else:
+            tol_time_cpp = f'{TOL_TIME}'
+
         g = Graph().parse(self.annotated_model_file_path)
 
         # find all delayed variables
@@ -1434,6 +1443,7 @@ public:
             otherHeaderInits += """
     int N1d0d;
     int N1d0dTot;
+    int couple_volume_sum;
     std::map<std::string, std::map<std::string, int>> pipe_1d_0d_info;
             """
 
@@ -1482,24 +1492,18 @@ public:
 
         if self.couple_to_1d:
             otherHeaderInits += """
-    std::ofstream write_pipe_dt;
-    std::ifstream read_pipe_dt;
-    std::vector<std::ofstream> write_pipe;
-    std::vector<std::ifstream> read_pipe;
-    int openPipes(std::string pipePath);
-    void closePipes();
-    
-    int DATA_LENGTH;
-    double ** zero_data;
-    double ** parent_data;
-    double * zero_data_dt;
-    double * parent_data_dt;
-            """
+    // MPI coupling with the 1d solver, through the coupler (see coupler_mpi_common.h)
+    int coupler_rank; // world rank of the coupler
+    int initCoupling(int couplerRank, double T0, int nCC);
+    void finaliseCoupling();
 
-        if self.couple_volume_sum:
-            otherHeaderInits += """
-    std::ifstream read_pipe_vol;
-    double * parent_data_vol;
+    int DATA_LENGTH;
+    std::vector<double> zero_data;       // N1d0d x DATA_LENGTH (row-major), 0d -> coupler (coupling values for all the 1D-0D connections stored in one flat vector)
+    std::vector<double> parent_data;     // N1d0d x DATA_LENGTH (row-major), coupler -> 0d (coupling values for all the 1D-0D connections stored in one flat vector)
+    // This flat layout lets all connections go out/come in in one MPI message.
+    std::vector<double> zero_data_dt;    // {time, time step}, 0d -> coupler
+    std::vector<double> parent_data_dt;  // {time, time step}, coupler -> 0d
+    std::vector<double> parent_data_vol; // {1d volume sum, 0}, coupler -> 0d
             """
 
         classFinisherHeader = """
@@ -1532,6 +1536,11 @@ public:
 #include <errno.h>
         """
 
+        if self.couple_to_1d: #XXX
+            preSourceStuff += """
+#include "coupler_mpi_common.h"
+        """
+
         if self.solver == 'CVODE':
             preSourceStuff += """
 #include <cvodes/cvodes.h>
@@ -1548,8 +1557,8 @@ public:
 #include <petscsnes.h>
 #include <petscvec.h>
 
-#define SOLVER_CN    // Crank-Nicolson
-// #define SOLVER_BDF1     // BDF o1 (Backward Euler)
+#define SOLVER_CN       // Crank-Nicolson
+// #define SOLVER_BDF1  // BDF o1 (Backward Euler)
 // #define SOLVER_BDF2  // BDF o2
 
         """
@@ -1579,12 +1588,12 @@ Model0d::Model0d() :
         """
         postClassInit = ''
 
-        classInit += """
+        classInit += f"""
     voi(0.0),
     voiEnd(0.0),
     dt(0.0),
     eps(1e-08),
-    tolTime(1e-11), // 1e-13
+    tolTime({tol_time_cpp}),
     states(nullptr),
     rates(nullptr),
     variables(nullptr),
@@ -1637,7 +1646,8 @@ Model0d::Model0d() :
             classInit += f"""
     N1d0d({N1d0d}),
     N1d0dTot({N1d0dTot}),
-        """ 
+    couple_volume_sum({1 if self.couple_volume_sum else 0}),
+        """
     #     else:
     #         N1d0d = 0
     #         N1d0dTot = 0
@@ -1976,26 +1986,11 @@ Model0d::Model0d() :
             deleteArray(k4);
         """
 
-        if self.couple_to_1d and N1d0dTot>0:  
-            classInit += """
-            for (int i = 0; i < N1d0d; ++i){
-                delete[] zero_data[i];
-                delete[] parent_data[i];
-            }
-            delete[] zero_data;
-            delete[] parent_data;
-            delete[] zero_data_dt;
-            delete[] parent_data_dt;
-        """
-        if self.couple_volume_sum:
-            classInit += """
-            delete[] parent_data_vol;
-        """
+        #XXX the buffers for the MPI coupling with the 1d solver are std::vector type, so their memory is freed automatically
 
         classInit += """
         }
         """
-        #XXX TODO what else should I do in the destructor? # Bea: I think destructor is fine now:)
 
         # print("#################################################")
         # print("preClassStuff")
@@ -2042,8 +2037,8 @@ void Model0d::set_ode_solver(std::string ODEsolver)
     // Attach linear solver module
     CVodeSetLinearSolver(solver, linearSolver, matrix);
     // Set our scalar relative and absolute tolerances.
-    sunrealtype reltol = 1e-7; // TODO get this from user_inputs.yaml too
-    sunrealtype abstol = 1e-9; // TODO get this from user_inputs.yaml too
+    sunrealtype reltol = {REL_TOL}; // TODO get this from user_inputs.yaml too
+    sunrealtype abstol = {ABS_TOL}; // TODO get this from user_inputs.yaml too
     CVodeSStolerances(solver, reltol, abstol); 
 """
         elif self.solver == 'PETSC':
@@ -2200,57 +2195,28 @@ void Model0d::set_ode_solver(std::string ODEsolver)
         # print("solverInitFunction")
         # print(solverInitFunction) 
 
-        pipesFunctions = ''
+        # functions handling the MPI coupling with the 1d solver (through the coupler)
+        couplingFunctions = ''
         if self.couple_to_1d and N1d0dTot>0:
 
-            iStart1 = None
-            iEnd1 = None
-            iStart2 = None
-            iEnd2 = None
+            iStart = None
+            iEnd = None
             for iL, line in enumerate(lines_tmp):
-                if "Model0d::openPipes(" in line:
-                    iStart1 = iL-1
+                if "Functions handling the MPI coupling" in line:
+                    iStart = iL
                     break
-            for iL, line in enumerate(lines_tmp[iStart1+1:], start=iStart1+1):
-                if "// Open read pipe for volume sum" in line:
-                    iEnd1 = iL
-                    break
-            for iL, line in enumerate(lines_tmp[iEnd1+1:], start=iEnd1+1):
-                if "Model0d::closePipes(" in line:
-                    iStart2 = iL-1
-                    break
-            for iL, line in enumerate(lines_tmp[iStart2+1:], start=iStart2+1):
+            for iL, line in enumerate(lines_tmp[iStart+1:], start=iStart+1):
                 if "End functions" in line:
-                    iEnd2 = iL
+                    iEnd = iL
                     break
-            
-            for iL, line in enumerate(lines_tmp[iStart1:iStart2], start=iStart1):
-                if iL==iEnd1:
-                    if not self.couple_volume_sum:
-                        pipesFunctions += """
-    return 0;
-}
-"""
-                        break
-                    else:
-                        pipesFunctions += line #+ '\n'
-                else:
-                    pipesFunctions += line #+ '\n'
-
-            for iL, line in enumerate(lines_tmp[iStart2:iEnd2+1], start=iStart2):
-                if ("// Close volume sum pipe" in line or "read_pipe_vol" in line):
-                    if self.couple_volume_sum:
-                        pipesFunctions += line #+ '\n'
-                    else:
-                        pass
-                else:
-                    pipesFunctions += line #+ '\n'
-            pipesFunctions += '\n'
+            for iL, line in enumerate(lines_tmp[iStart:iEnd+1], start=iStart):
+                couplingFunctions += line #+ '\n'
+            couplingFunctions += '\n'
 
 
         # print("#################################################")
-        # print("pipesFunctions")
-        # print(pipesFunctions)
+        # print("couplingFunctions")
+        # print(couplingFunctions)
 
         outputFunctions = ''
         iStart = None
@@ -2514,12 +2480,11 @@ void Model0d::getExternalVariables(double voiLoc, double dtLoc, double *statesLo
             computeEV += """
     if (N1d0d>0) {
         // Step 1: send data
-        // S1: compute, write and send time & internal time step data to coupler
+        // S1: compute and send time & internal time step data to coupler
         zero_data_dt[0] = voiLoc;
         zero_data_dt[1] = dtLoc;
-        write_pipe_dt.write(reinterpret_cast<const char*>(zero_data_dt), DATA_LENGTH * sizeof(double));
-        write_pipe_dt.flush();
-        
+        MPI_Send(zero_data_dt.data(), DATA_LENGTH, MPI_DOUBLE, coupler_rank, TAG_DT, MPI_COMM_WORLD);
+
         // write...
         std::string pipeID;
         int idx_port;
@@ -2533,55 +2498,44 @@ void Model0d::getExternalVariables(double voiLoc, double dtLoc, double *statesLo
                 type_port = pipe_1d_0d_info[pipeID][\"port_state0_or_var1\"];
                 idx_res = pipe_1d_0d_info[pipeID][\"R_T_variable_idx\"];
                 type_bc = pipe_1d_0d_info[pipeID][\"cellml_bc_flow0_or_press1\"];
-                if (type_bc==0){ // flow bc --> pressure port --> pressure and resistance are passed to 1d    
+                if (type_bc==0){ // flow bc --> pressure port --> pressure and resistance are passed to 1d
                     if (type_port==0){ // state
-                        zero_data[i][0] = statesLoc[idx_port];
+                        zero_data[i*DATA_LENGTH+0] = statesLoc[idx_port];
                     } else if (type_port==1){ // variable
-                        zero_data[i][0] = varLoc[idx_port];
+                        zero_data[i*DATA_LENGTH+0] = varLoc[idx_port];
                     }
-                    // zero_data[i][1] = varLoc[idx_res];
                     if (idx_res<0){
-                        zero_data[i][1] = 0.0;
+                        zero_data[i*DATA_LENGTH+1] = 0.0;
                     } else{
-                        zero_data[i][1] = varLoc[idx_res];
+                        zero_data[i*DATA_LENGTH+1] = varLoc[idx_res];
                     }
                 } else if (type_bc==1){ // pressure bc --> flow port --> flow is passed to 1d
                     if (type_port==0){ // state
-                        zero_data[i][0] = statesLoc[idx_port];
+                        zero_data[i*DATA_LENGTH+0] = statesLoc[idx_port];
                     } else if (type_port==1){ // variable
-                        zero_data[i][0] = varLoc[idx_port];
+                        zero_data[i*DATA_LENGTH+0] = varLoc[idx_port];
                     }
                 }
-                // S1: compute, write and send data to coupler for each 1d-0d connection
-                write_pipe[i].write(reinterpret_cast<const char*>(zero_data[i]), DATA_LENGTH * sizeof(double));
-                write_pipe[i].flush();
             }
             else {
-                std::cerr << \"ERROR :: this is a volume sum port, use its dedicated pipes for this connection. Exiting.\" << std::endl;
+                std::cerr << \"ERROR :: this is a volume sum port, use its dedicated messages for this connection. Exiting.\" << std::endl;
                 exit(1);
             }
         }
+        // S1: send data to coupler for all 1d-0d connections (one message, one row per connection)
+        MPI_Send(zero_data.data(), N1d0d*DATA_LENGTH, MPI_DOUBLE, coupler_rank, TAG_DATA, MPI_COMM_WORLD);
         // ...wait to receive back...
-        // Step 2: receive and read data with computed 0d coupling variables
-        for (int i = 0; i < N1d0d; ++i) {
-            pipeID = std::to_string(i+1);
-            if (pipe_1d_0d_info[pipeID][\"port_volume_sum\"] != 1){ 
-                read_pipe[i].read(reinterpret_cast<char*>(parent_data[i]), DATA_LENGTH * sizeof(double));
-            }
-            else {
-                std::cerr << \"ERROR :: this is a volume sum port, use its dedicated pipes for this connection. Exiting.\" << std::endl;
-                exit(1);
-            }
-        } 
+        // Step 2: receive data with computed 0d coupling variables for all 1d-0d connections
+        MPI_Recv(parent_data.data(), N1d0d*DATA_LENGTH, MPI_DOUBLE, coupler_rank, TAG_DATA, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         int idx_cellml;
         for (int i = 0; i < N1d0d; ++i) {
             pipeID = std::to_string(i+1);
             if (pipe_1d_0d_info[pipeID][\"port_volume_sum\"] != 1){
                 idx_cellml = pipe_1d_0d_info[pipeID][\"cellml_idx\"];
-                varLoc[idx_cellml] = parent_data[i][0];
+                varLoc[idx_cellml] = parent_data[i*DATA_LENGTH+0];
             }
             else {
-                std::cerr << \"ERROR :: this is a volume sum port, use its dedicated pipes for this connection. Exiting.\" << std::endl;
+                std::cerr << \"ERROR :: this is a volume sum port, use its dedicated messages for this connection. Exiting.\" << std::endl;
                 exit(1);
             }
         }
@@ -2605,8 +2559,8 @@ void Model0d::getExternalVariablesVolume(double *varLoc)
         int idx_cellml;
         for (int i = 0; i < N1d0dTot; ++i) {
             pipeID = std::to_string(i+1);
-            if (pipe_1d_0d_info[pipeID][\"port_volume_sum\"] == 1){ 
-                read_pipe_vol.read(reinterpret_cast<char*>(parent_data_vol), DATA_LENGTH * sizeof(double));
+            if (pipe_1d_0d_info[pipeID][\"port_volume_sum\"] == 1){
+                MPI_Recv(parent_data_vol.data(), DATA_LENGTH, MPI_DOUBLE, coupler_rank, TAG_VOL, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
                 idx_cellml = pipe_1d_0d_info[pipeID][\"cellml_idx\"];
                 varLoc[idx_cellml] = parent_data_vol[0];
             }
@@ -2854,16 +2808,15 @@ void Model0d::solveOneStep(double dtLoc)
 """
         if self.couple_to_1d:
             solveOneStepFunction += """
-    // matching global time step between 1d and 0d
+    // matching global time step between 1d and 0d (at the start of each global time step: TAG_DT_STEP)
     if (N1d0dTot>0){
         zero_data_dt[0] = voi;
         zero_data_dt[1] = dt;
-        write_pipe_dt.write(reinterpret_cast<const char*>(zero_data_dt), DATA_LENGTH * sizeof(double));
-        write_pipe_dt.flush();
+        MPI_Send(zero_data_dt.data(), DATA_LENGTH, MPI_DOUBLE, coupler_rank, TAG_DT_STEP, MPI_COMM_WORLD);
     }
 
     if (N1d0dTot>0){
-        read_pipe_dt.read(reinterpret_cast<char*>(parent_data_dt), DATA_LENGTH * sizeof(double));
+        MPI_Recv(parent_data_dt.data(), DATA_LENGTH, MPI_DOUBLE, coupler_rank, TAG_DT_STEP, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         dt = parent_data_dt[1];
     }
 """
@@ -2905,14 +2858,13 @@ void Model0d::solveOneStep(double dtLoc)
             if self.couple_to_1d:
                 solveOneStepFunction += """
     if (N1d0dTot>0){
-        zero_data_dt[1] = -999.; // signal to parent that time step is done
-        write_pipe_dt.write(reinterpret_cast<const char*>(zero_data_dt), DATA_LENGTH * sizeof(double));
-        write_pipe_dt.flush();
+        zero_data_dt[1] = -999.; // signal to coupler that time step is done
+        MPI_Send(zero_data_dt.data(), DATA_LENGTH, MPI_DOUBLE, coupler_rank, TAG_DT, MPI_COMM_WORLD);
         zero_data_dt[1] = dtLoc; // reset value
     }
 
-    if (N1d0dTot>0){
-        read_pipe_dt.read(reinterpret_cast<char*>(parent_data_dt), DATA_LENGTH * sizeof(double));
+    if (N1d0dTot>0){ // TODO ???
+        MPI_Recv(parent_data_dt.data(), DATA_LENGTH, MPI_DOUBLE, coupler_rank, TAG_DT, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         dt = parent_data_dt[1];
         // std::cout << \"0d solver :: Received negative 0d internal time step dtLoc \" << dt << std::endl;
         dt = dtLoc; // reset value
@@ -2951,14 +2903,13 @@ void Model0d::solveOneStep(double dtLoc)
             if self.couple_to_1d:
                 solveOneStepFunction += """
     if (N1d0dTot>0){
-        zero_data_dt[1] = -999.; // signal to parent that time step is done
-        write_pipe_dt.write(reinterpret_cast<const char*>(zero_data_dt), DATA_LENGTH * sizeof(double));
-        write_pipe_dt.flush();
+        zero_data_dt[1] = -999.; // signal to coupler that time step is done
+        MPI_Send(zero_data_dt.data(), DATA_LENGTH, MPI_DOUBLE, coupler_rank, TAG_DT, MPI_COMM_WORLD);
         zero_data_dt[1] = dtLoc; // reset value
     }
 
-    if (N1d0dTot>0){
-        read_pipe_dt.read(reinterpret_cast<char*>(parent_data_dt), DATA_LENGTH * sizeof(double));
+    if (N1d0dTot>0){ // TODO ???
+        MPI_Recv(parent_data_dt.data(), DATA_LENGTH, MPI_DOUBLE, coupler_rank, TAG_DT, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         dt = parent_data_dt[1];
         // std::cout << \"0d solver :: Received negative 0d internal time step dtLoc \" << dt << std::endl;
         dt = dtLoc; // reset value
@@ -3086,14 +3037,13 @@ void Model0d::solveOneStep(double dtLoc)
             if self.couple_to_1d:
                 solveOneStepFunction += """
     if (N1d0dTot>0){
-        zero_data_dt[1] = -999.; // signal to parent that time step is done
-        write_pipe_dt.write(reinterpret_cast<const char*>(zero_data_dt), DATA_LENGTH * sizeof(double));
-        write_pipe_dt.flush();
+        zero_data_dt[1] = -999.; // signal to coupler that time step is done
+        MPI_Send(zero_data_dt.data(), DATA_LENGTH, MPI_DOUBLE, coupler_rank, TAG_DT, MPI_COMM_WORLD);
         zero_data_dt[1] = dtLoc; // reset value
     }
 
-    if (N1d0dTot>0){
-        read_pipe_dt.read(reinterpret_cast<char*>(parent_data_dt), DATA_LENGTH * sizeof(double));
+    if (N1d0dTot>0){ // TODO ???
+        MPI_Recv(parent_data_dt.data(), DATA_LENGTH, MPI_DOUBLE, coupler_rank, TAG_DT, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         dt = parent_data_dt[1];
         // std::cout << \"0d solver :: Received negative 0d internal time step dtLoc \" << dt << std::endl;
         dt = dtLoc; // reset value
@@ -3288,9 +3238,9 @@ void* UserOdeData::cvodeMem() const
 
 
         if self.solver == 'CVODE':
-            funcCC = """
+            funcCC = f"""
 int func(double voi_, N_Vector y, N_Vector yDot, void *userData)
-{
+{{
     // Function that computes the RHS of the ODE system, in the form of f(t, y, ydot, user_data)
     // - t : the current value of the independent variable (time)
     // - y : the current value of the dependent variable vector (the states)
@@ -3303,24 +3253,24 @@ int func(double voi_, N_Vector y, N_Vector yDot, void *userData)
     sunrealtype hlast;
     long int nst;
     sunrealtype dtLoc;
-    double tolTime = 1e-11; // 1e-13;
+    double tolTime = {tol_time_cpp};
 
     CVodeGetCurrentTime(realUserData->cvodeMem(), &t_solver);
     CVodeGetCurrentStep(realUserData->cvodeMem(), &hcur); // current internal time step
     // CVodeGetLastStep(realUserData->cvodeMem(), &hlast); // last time step taken
     CVodeGetNumSteps(realUserData->cvodeMem(), &nst); // total internal steps so far
 
-    if (nst == realUserData->nstOld){
+    if (nst == realUserData->nstOld){{
         // CVODE did not take a step
         dtLoc = 0.0;
         // std::cout << std::setprecision(20)
         //             << "WARNING: CVODE did not take a step at time " << voi_
         //             << " with solver time " << t_solver
         //             << std::endl;
-    } else {
+    }} else {{
         dtLoc = hcur;
         realUserData->nstOld = nst;
-    } 
+    }} 
     // std::cout << std::setprecision(20)
     //                 << "CVODE has internal time step " << dtLoc
     //                 << " at time " << voi_
@@ -3333,7 +3283,7 @@ int func(double voi_, N_Vector y, N_Vector yDot, void *userData)
                             N_VGetArrayPointer_Serial(yDot), realUserData->variables());
     
     return 0;
-}
+}}
            
         """
             
@@ -3607,7 +3557,7 @@ int main(int argc, char* argv[]){
             f.write(externalInteractionFunctions)
 
             f.write(solverInitFunction) #XXX Bea's addition
-            f.write(pipesFunctions) #XXX Bea's addition
+            f.write(couplingFunctions) #XXX Bea's addition
             f.write(outputFunctions) #XXX Bea's addition
 
             f.write(computeEV)
@@ -3642,6 +3592,8 @@ int main(int argc, char* argv[]){
                     if 'PetscInitialize' in line:
                         line = line.replace('// ', '')
                     if 'PetscFinalize' in line:
+                        line = line.replace('// ', '')
+                    if 'PETSC_COMM_WORLD' in line: # PETSc only on the 0d solver communicator, not the whole MPI job
                         line = line.replace('// ', '')
 
                 if 'std::string resFold =' in line:
@@ -3733,18 +3685,17 @@ int main(int argc, char* argv[]){
                 makefile = "MakefilePETSC"
             else:
                 makefile = "Makefile"
-            makefile_coupler = "MakefileCoupler"
-            
+            # makefile_coupler = "MakefileCoupler"
             runfile_coupler = "run_coupler1d0d.bash"
-            
-            tmp_pipe_dir = "/tmp/pipes"
-            # tmp_pipe_dir = "/home/bghi639/Software/tmp"
-            # if not os.path.exists(tmp_pipe_dir):
-            #     os.mkdir(tmp_pipe_dir)
             
             # Makefile for 0d solver         
             source = os.path.join(generators_dir_path, '../makefiles_cpp/cpp_hybrid/'+makefile)
             destination = os.path.join(self.cpp_generated_models_dir, makefile) 
+            shutil.copy2(source, destination)
+
+            # header shared by the coupler and the 0d solver for the MPI coupling (included by main0d.cpp and model0d.cc)
+            source = os.path.join(generators_dir_path, '../coupler/coupler_mpi_common.h')
+            destination = os.path.join(self.cpp_generated_models_dir, 'coupler_mpi_common.h')
             shutil.copy2(source, destination)
 
             # Makefile for coupler
@@ -3768,9 +3719,6 @@ int main(int argc, char* argv[]){
                 if 'FOLDERcoupler=\"\"' in line:
                     line = line.replace('FOLDERcoupler=\"\"', f'FOLDERcoupler=\"{generators_dir_path}/../coupler/\"')
                     # print(line)
-                if 'FOLDERpipes=\"\"' in line:
-                    line = line.replace('FOLDERpipes=\"\"', f'FOLDERpipes=\"{tmp_pipe_dir}\"')
-                    # print(line)
                 runfileScript += line
 
             with open(os.path.join(self.cpp_generated_models_dir, runfile_coupler), 'w') as f:
@@ -3785,12 +3733,11 @@ int main(int argc, char* argv[]){
             coupler_config['ODEsolver'] = self.solver
             coupler_config['T0'] = 1.0 #XXX DEFAULT, THIS SHOULD BE READ FROM MODEL CONFIG/INPUT FILES
             coupler_config['nCC'] = 3 #XXX DEFAULT, THIS SHOULD BE READ FROM MODEL CONFIG/INPUT FILES
-            coupler_config['tmp_pipe_path'] = tmp_pipe_dir+'/'
             coupler_config['solver0d_path'] = self.cpp_generated_models_dir+'/main0d'
             # coupler_config['python_path'] = '/home/bghi639/anaconda3/bin/python'
             # coupler_config['python_path'] = '/home/bghi639/Software/OpenCOR-0-8-3-Linux/python'
             coupler_config['python_path'] = opencor_root+'/python' #XXX DEFAULT OpenCOR Python
-            coupler_config['solver1d_path'] = generators_dir_path+'/../solver1d/main1D.py' #XXX THIS WILL CHANGE TO A SEPARATE REPO FOR THE 1D SOLVER
+            coupler_config['solver1d_path'] = generators_dir_path+'/../solver1d/main1D.py' #XXX THIS CAN CHANGE TO A SEPARATE REPO FOR THE 1D SOLVER
             coupler_config['initFile_sim1d_path'] = self.model_1d_config_path
             coupler_config['initStatePath'] = 'None'
 

@@ -265,96 +265,46 @@ void Model0d::closeOutputFiles()
 }
 /* End functions */
 
-/* Functions handling pipes */
-int Model0d::openPipes(std::string pipePath)
+/* Functions handling the MPI coupling with the 1d solver */
+int Model0d::initCoupling(int couplerRank, double T0, int nCC)
 {
-    // Open write pipe for time step.
-    std::string opipeName = pipePath+std::string("zero_to_parent_dt");
-    write_pipe_dt.open(opipeName);
-    if (!write_pipe_dt.is_open()) {
-        std::cerr << "0d solver :: failed to open time step write pipe" << std::endl;
-        return 1;
-    }
-    // Open write pipe for each 1d-0d connection.
-    write_pipe.reserve(N1d0d);
-    for (int i = 0; i < N1d0d; ++i) {
-        std::string pipeID = std::to_string(i+1);
-        std::ofstream ofs;
-        std::string opipeName = pipePath+std::string("zero_to_parent_")+pipeID;
-        // Open write pipe.
-        ofs.open(opipeName);
-        if (!ofs.is_open()) {
-            std::cerr << "0d solver :: failed to open write pipe " << pipeID << std::endl;
-            return 1;
-        }  
-        write_pipe.push_back(std::move(ofs));
-    }
-    // Open read pipe for time step.
-    std::string ipipeName = pipePath+std::string("parent_to_zero_dt");
-    read_pipe_dt.open(ipipeName);
-    if (!read_pipe_dt.is_open()) {
-        std::cerr << "0d solver :: failed to open time step read pipe" << std::endl;
-        return 1;
-    }
-    // Open read pipe for each 1d-0d connection.
-    read_pipe.reserve(N1d0d);
-    for (int i = 0; i < N1d0d; ++i) {
-        std::string pipeID = std::to_string(i+1);
-        std::ifstream ifs;
-        std::string ipipeName = pipePath+std::string("parent_to_zero_")+pipeID;
-        // Open read pipe.
-        ifs.open(ipipeName);
-        if (!ifs.is_open()) {
-            std::cerr << "0d solver :: failed to open read pipe " << pipeID << std::endl;
+    // MPI has already been initialised and the world communicator split in main0d.cpp (setup_coupling()).
+    // All messages go through the coupler: see coupler_mpi_common.h for the protocol.
+    coupler_rank = couplerRank;
+
+    DATA_LENGTH = COUPLING_DATA_LENGTH;
+    zero_data_dt.assign(DATA_LENGTH, 0.0);
+    parent_data_dt.assign(DATA_LENGTH, 0.0);
+    zero_data.assign(N1d0d*DATA_LENGTH, 0.0);   // one row of DATA_LENGTH values per 1d-0d connection
+    parent_data.assign(N1d0d*DATA_LENGTH, 0.0); // one row of DATA_LENGTH values per 1d-0d connection
+    parent_data_vol.assign(DATA_LENGTH, 0.0);
+
+    // Handshake: check that the coupler agrees on the coupling layout.
+    double cfg[COUPLING_CONFIG_LENGTH];
+    MPI_Recv(cfg, COUPLING_CONFIG_LENGTH, MPI_DOUBLE, coupler_rank, TAG_CONFIG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    const double mine[COUPLING_CONFIG_LENGTH] = {static_cast<double>(N1d0d), static_cast<double>(couple_volume_sum), T0, static_cast<double>(nCC), tolTime};
+    for (int j = 0; j < COUPLING_CONFIG_LENGTH; ++j) {
+        if (std::abs(cfg[j]-mine[j]) > 1e-12*std::abs(mine[j])) {
+            std::cerr << "0d solver :: Error: coupling mismatch with the coupler [N1d0d, couple_volume_sum, T0, nCC, tolTime]: coupler {";
+            for (int k = 0; k < COUPLING_CONFIG_LENGTH; ++k) std::cerr << (k ? ", " : "") << cfg[k];
+            std::cerr << "} vs 0d solver {";
+            for (int k = 0; k < COUPLING_CONFIG_LENGTH; ++k) std::cerr << (k ? ", " : "") << mine[k];
+            std::cerr << "}" << std::endl;
             return 1;
         }
-        read_pipe.push_back(std::move(ifs));
     }
+    std::cout << "0d solver :: MPI coupling initialised, coupler is world rank " << coupler_rank << std::endl;
 
-    DATA_LENGTH = 2;
-    zero_data_dt = new double[DATA_LENGTH];
-    parent_data_dt = new double[DATA_LENGTH];
-    for (int j = 0; j < DATA_LENGTH; ++j){
-        zero_data_dt[j] = 0.0;
-        parent_data_dt[j] = 0.0;
-    }
-    zero_data = new double*[N1d0d];
-    parent_data = new double*[N1d0d];
-    for (int i = 0; i < N1d0d; ++i) {
-        zero_data[i] = new double[DATA_LENGTH];
-        parent_data[i] = new double[DATA_LENGTH];
-    }
-    for (int i = 0; i < N1d0d; ++i){
-        for (int j = 0; j < DATA_LENGTH; ++j){
-            zero_data[i][j] = 0.0;
-            parent_data[i][j] = 0.0;
-        }
-    }
-
-    // Open read pipe for volume sum.
-    std::string ipipeName = pipePath+std::string("parent_to_zero_vol");
-    read_pipe_vol.open(ipipeName);
-    if (!read_pipe_vol.is_open()) {
-        std::cerr << "0d solver :: failed to open volume sum read pipe" << std::endl;
-        return 1;
-    }
-   
     return 0;
 }
 
-void Model0d::closePipes()
+void Model0d::finaliseCoupling()
 {
-    // Close time step pipes
-    write_pipe_dt.close();
-    read_pipe_dt.close();
-    // Close 1d-0d connection pipes
-    for (int i = 0; i < N1d0d; ++i) {
-        write_pipe[i].close();
-        read_pipe[i].close();
-    }
-    // Close volume sum pipe
-    read_pipe_vol.close();
- 
-    std::cout << "### 0d solver :: All pipes closed. ###" << std::endl;
+    // Tell the coupler that the 0d solver has completed its time loop.
+    zero_data_dt[0] = voi;
+    zero_data_dt[1] = 0.0;
+    MPI_Send(zero_data_dt.data(), DATA_LENGTH, MPI_DOUBLE, coupler_rank, TAG_DONE, MPI_COMM_WORLD);
+
+    std::cout << "### 0d solver :: MPI coupling finalised. ###" << std::endl;
 }
 /* End functions */

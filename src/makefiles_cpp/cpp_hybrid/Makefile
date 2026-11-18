@@ -1,8 +1,11 @@
-# Compiler
-CXX = g++
-#CXX = mpic++
+# Compiler: MPI C++ wrapper, as the 0d solver communicates with the coupler through MPI.
+# It must belong to the same MPI installation as the coupler, the mpi4py used by the 1d solver,
+# and the mpirun used to launch the coupled run.
+CXX = mpic++
 # Compiler flags (add -g for debug, or -O2/-O3 for optimization, or -Wall for enabling warning messages)
 CXXFLAGS = -Wall -O2 -std=c++17 $(INC_DIR)
+# Skip the deprecated MPI C++ bindings (we use the C API; avoids header warnings)
+CPPFLAGS = -DOMPI_SKIP_MPICXX -DMPICH_SKIP_MPICXX
 
 # SUNDIALS paths from Spack
 SUNDIALS_PREFIX := $(shell spack location -i sundials)
@@ -28,6 +31,9 @@ OBJS := $(OBJS:.cc=.o)
 # Output/target binary
 TARGET = main0d
 
+# Build rules
+.PHONY: all clean
+
 all: $(TARGET)
 
 # Link target	
@@ -36,11 +42,10 @@ $(TARGET): $(OBJS)
 
 # Compile source files
 %.o: %.cpp
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 %.o: %.cc
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 
 # Clean
 clean:
 	rm -f $(OBJS) $(TARGET)
-

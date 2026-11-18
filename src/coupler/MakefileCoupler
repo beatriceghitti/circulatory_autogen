@@ -1,59 +1,38 @@
-# Compiler
-CXX = g++
-#CXX = mpic++
+# Compiler: MPI C++ wrapper. It must belong to the same MPI installation as the 0d solver
+# (main0d), the mpi4py used by the 1d solver, and the mpirun used to launch the coupled run.
+CXX = mpic++
 # Compiler flags (add -g for debug, or -O2/-O3 for optimization, or -Wall for enabling warning messages)
 CXXFLAGS = -Wall -O2 -std=c++17 $(INC_DIR)
 # CXXFLAGS = $(INC_DIR)
+# Skip the deprecated MPI C++ bindings (we use the C API; avoids header warnings)
+CPPFLAGS = -DOMPI_SKIP_MPICXX -DMPICH_SKIP_MPICXX
 
 # nlohmann-json paths from Spack
 JSON_PREFIX := $(shell spack location -i nlohmann-json)
 INC_DIR = -I$(JSON_PREFIX)/include
 # LIB_DIR = -L$(JSON_PREFIX)/lib
 
-# THE LINE BELOW MUST BE CHANGED TO A DIFFERENT DEFAULT PATH IF NEEDED
-PIPE_DIR ?= /home/bghi639/Software/tmp
-# PIPE_DIR = ./tmp
-# PIPE_DIR = /tmp
-
-# # Linker flags
-# LDFLAGS  = $(LIB_DIR)
-# # Linker libraries
-# LDLIBS = -lsundials_cvodes \
-# 	 -lsundials_sunmatrixdense \
-#          -lsundials_sunlinsoldense \
-#          -lsundials_nvecserial \
-#          -lsundials_core \
-#          -lm
-
 # Source files
 SRCS = coupler.cpp coupler_auxFun.cpp
 # Object files (auto-generated from SRCS)
 OBJS := $(SRCS:.cpp=.o) # OBJS = $(SRCS:.cpp=.o)
-# OBJS := $(OBJS:.cc=.o)
 # Target binary/executable
 TARGET = coupler
 
 all: $(TARGET)
 
-# Link target	
-# $(TARGET): $(OBJS)
-# 	$(CXX) $(CXXFLAGS) -o $@ $^
+# Link target
 $(TARGET): $(OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $(OBJS)
 
 # Compile source files
+coupler.o: coupler.cpp coupler_mpi_common.h coupler_auxFun.h
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 %.o: %.cpp
-	$(CXX) $(CXXFLAGS) -c $< -o $@
-# %.o: %.cc
-# 	$(CXX) $(CXXFLAGS) -c $< -o $@
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 
 # Clean
 clean:
 	rm -f $(OBJS) $(TARGET)
 
-clean_pipe:
-# 	@echo "The path is: $(PIPE_DIR)"
-	rm -f $(PIPE_DIR)/zero_to_*
-	rm -f $(PIPE_DIR)/one_to_*
-	rm -f $(PIPE_DIR)/parent_to_*
-
+.PHONY: all clean

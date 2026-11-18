@@ -19,13 +19,10 @@
 // #include <petscsys.h>
 
 #include "model0d.h"
+#include "coupler_mpi_common.h"
 
 
 int main(int argc, char* argv[]) {
-
-    // PetscErrorCode ierr;
-    // ierr = PetscInitialize(&argc, &argv, NULL, NULL);
-    // std::cout << "0d solver :: PETSc initialization complete : " << ierr << std::endl;
 
     bool is_coupled = false;
     for (int i = 1; i < argc; i++) {
@@ -33,6 +30,31 @@ int main(int argc, char* argv[]) {
             if (std::string(argv[++i]) == "1") is_coupled = true;
         }
     }
+
+    // MPI: in a coupled run, the 0d solver is launched by mpirun together with the coupler and the 1d solver.
+    MPI_Init(&argc, &argv);
+    MPI_Comm comm0d = MPI_COMM_WORLD;
+    int coupler_rank = -1;
+    if (is_coupled) {
+        // This must come first: it is collective with the coupler and the 1d solver.
+        CouplingLayout layout = setup_coupling(COLOR_SOLVER0D);
+        comm0d = layout.local;
+        coupler_rank = layout.roots[COLOR_COUPLER];
+        int size0d;
+        MPI_Comm_size(comm0d, &size0d);
+        if (coupler_rank < 0 || size0d != 1) {
+            std::cerr << "0d solver :: Error: coupled mode needs the coupler in the same mpirun, "
+                      << "and exactly 1 MPI rank for the 0d solver (" << size0d << " given)" << std::endl;
+            MPI_Abort(MPI_COMM_WORLD, 1);
+        }
+    }
+
+    // PetscErrorCode ierr;
+    // The communicator of PETSc must only contain the 0d solver, not the whole coupled MPI job.
+    // PETSC_COMM_WORLD = comm0d;
+    // ierr = PetscInitialize(&argc, &argv, NULL, NULL);
+    // std::cout << "0d solver :: PETSc initialization complete : " << ierr << std::endl;
+
     std::cout << "0d solver :: is_coupled : " << is_coupled << std::endl;
     
     std::cout << "0d solver :: input arguments" << std::endl;
@@ -41,23 +63,20 @@ int main(int argc, char* argv[]) {
     }
 
     std::string ODEsolver; // ODE solver: "explEul" / "Heun" / "midpoint" / "RK4" / "CVODE" / "PETSC"
-    double T0; // cardiac cycle duration 
-    int nCC; // number of cardiac cycles
+    double T0 = 0.0; // cardiac cycle duration 
+    int nCC = 0; // number of cardiac cycles
     std::string modelName;
-    std::string pipePath;
     std::string initStatePath;
     if (is_coupled) {
         // ODEsolver = std::string(argv[2]);
         // T0 = std::stod(std::string(argv[3]));
         // nCC = std::stoi(std::string(argv[4]));
         // modelName = std::string(argv[5]);
-        // pipePath = std::string(argv[6]);
         for (int i = 1; i < argc; i++) {
             if (std::strcmp(argv[i], "-ODEsolver") == 0) ODEsolver = std::string(argv[++i]);
             else if (std::strcmp(argv[i], "-T0") == 0) T0 = std::stod(std::string(argv[++i]));
             else if (std::strcmp(argv[i], "-nCC") == 0) nCC = std::stoi(std::string(argv[++i]));
             else if (std::strcmp(argv[i], "-networkName") == 0) modelName = std::string(argv[++i]);
-            else if (std::strcmp(argv[i], "-pipePath") == 0) pipePath = std::string(argv[++i]);
             else if (std::strcmp(argv[i], "-initStatePath") == 0) initStatePath = std::string(argv[++i]);
         }
     } else{
@@ -65,7 +84,6 @@ int main(int argc, char* argv[]) {
         T0 = 1.1;
         nCC = 5;
         modelName = "aortic_bif_0d";
-        pipePath = "NA";
         initStatePath = "None";
     }
     std::cout << "0d solver :: ODE solver : " << ODEsolver << std::endl;
@@ -95,17 +113,17 @@ int main(int argc, char* argv[]) {
     
     // int N1d0d = 0;
     // int N1d0dTot = 0;
-    // open pipes for 1d-0d coupling.
+    // set up the MPI communication with the coupler for 1d-0d coupling.
     if (is_coupled) {
         // N1d0d = model0d->N1d0d;
         // N1d0dTot = model0d->N1d0dTot;
-        int status = model0d->openPipes(pipePath);
+        int status = model0d->initCoupling(coupler_rank, T0, nCC);
         if (status==1){
-            return 1;
+            MPI_Abort(MPI_COMM_WORLD, 1);
         }
     }
 
-    const double tolTime = 1e-11; // 1e-13;
+    const double tolTime = COUPLING_TOL_TIME; // shared with the coupler, see coupler_mpi_common.h
     const double tIni = 0.0;
     const double dtSample = 1e-3;
     double tEnd = dtSample;
@@ -181,15 +199,20 @@ int main(int argc, char* argv[]) {
 
     // close output file(s).
     model0d->closeOutputFiles();
-    // close pipes.
+    // tell the coupler that the 0d solver has completed its time loop (this replaces closing the pipes).
     if (is_coupled) {
-        model0d->closePipes();
+        model0d->finaliseCoupling();
     }
     // free the memory.
-    delete model0d; 
+    delete model0d;
     std::cout << "### 0d solver :: Object model0d deleted ###" << std::endl;
     // ierr = PetscFinalize();
     // std::cout << "### 0d solver :: PETSc finalization complete : " << ierr << " ###" << std::endl;
+
+    if (comm0d != MPI_COMM_WORLD) {
+        MPI_Comm_free(&comm0d);
+    }
+    MPI_Finalize();
 
     return 0;
 }

@@ -578,7 +578,9 @@ def generate1DPythonSimInitFile(df_params, vess, nodes, sim_init_file, filename_
         'dtSample': dtSample, 
         'tolTime': 1e-11 # 1e-10
     }
-    # T0 and tEnd will be overridden by the coupler using T0 and nCC instead
+    # T0 and tEnd will be overridden by the coupler using T0 and nCC instead.
+    # tolTime is used only when running the 1d solver alone: in a coupled run, the 1d solver
+    # uses the time tolerance of the coupler (COUPLING_TOL_TIME in src/coupler/coupler_mpi_common.h).
 
 
     rho = 1.040
