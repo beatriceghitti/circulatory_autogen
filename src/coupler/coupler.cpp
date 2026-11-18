@@ -292,6 +292,12 @@ public:
 
 int main(int argc, char* argv[]) {
 
+    // Only print the MPI version (used by launch_coupled_mpi.bash), before starting MPI.
+    if (argc > 1 && std::strcmp(argv[1], MPI_VERSION_OPTION) == 0) {
+        print_mpi_version();
+        return 0;
+    }
+
     MPI_Init(&argc, &argv);
     // This must come first: it is collective with the 0d and 1d solvers.
     CouplingLayout layout = setup_coupling(COLOR_COUPLER);

@@ -17,6 +17,8 @@
 
 #include <mpi.h>
 #include <vector>
+#include <cstdio>
+#include <cstring>
 
 // Each program identifies itself with a fixed "color". Using fixed colors (rather than
 // MPI_APPNUM) means that the order of the programs on the mpirun line does not matter.
@@ -84,4 +86,27 @@ inline CouplingLayout setup_coupling(int my_color)
         if (colors[r] >= 0 && colors[r] < NUM_COLORS) L.roots[colors[r]] = r;
 
     return L;
+}
+
+// Command-line option of the coupler and of main0d: print the MPI version and exit, without starting MPI.
+// src/coupler/launch_coupled_mpi.bash uses it to check, before launching a coupled run, that all the
+// programs use the same MPI. It must be handled before MPI_Init.
+constexpr const char* MPI_VERSION_OPTION = "--mpi-version";
+
+// Print the MPI this program was built with (mpi.h at compile time) and the MPI library it runs with
+// (loaded at run time), one per line. MPI_Get_library_version may be called before MPI_Init.
+inline void print_mpi_version()
+{
+#if defined(OMPI_MAJOR_VERSION)
+    std::printf("built with: Open MPI %d.%d.%d\n", OMPI_MAJOR_VERSION, OMPI_MINOR_VERSION, OMPI_RELEASE_VERSION);
+#elif defined(MPICH_VERSION)
+    std::printf("built with: MPICH %s\n", MPICH_VERSION);
+#else
+    std::printf("built with: unknown MPI implementation (MPI standard %d.%d)\n", MPI_VERSION, MPI_SUBVERSION);
+#endif
+    char version[MPI_MAX_LIBRARY_VERSION_STRING];
+    int length = 0;
+    MPI_Get_library_version(version, &length);
+    version[std::strcspn(version, "\n")] = '\0';   // first line only
+    std::printf("runs with: %s\n", version);
 }

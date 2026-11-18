@@ -8,6 +8,7 @@ CXXFLAGS = -Wall -O2 -std=c++17 $(INC_DIR)
 CPPFLAGS = -DOMPI_SKIP_MPICXX -DMPICH_SKIP_MPICXX
 
 # SUNDIALS paths from Spack
+# Serial version of SUNDIALS - both lines pick the same serial build, if no sundials+mpi is installed.
 SUNDIALS_PREFIX := $(shell spack location -i sundials)
 # SUNDIALS_PREFIX := $(shell spack location -i sundials~mpi)
 INC_DIR = -I$(SUNDIALS_PREFIX)/include

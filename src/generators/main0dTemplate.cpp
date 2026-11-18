@@ -24,6 +24,14 @@
 
 int main(int argc, char* argv[]) {
 
+    // Only print the MPI version (used by launch_coupled_mpi.bash), before starting MPI and the model.
+    for (int i = 1; i < argc; i++) {
+        if (std::strcmp(argv[i], MPI_VERSION_OPTION) == 0) {
+            print_mpi_version();
+            return 0;
+        }
+    }
+
     bool is_coupled = false;
     for (int i = 1; i < argc; i++) {
         if (std::strcmp(argv[i], "-coupled") == 0){
