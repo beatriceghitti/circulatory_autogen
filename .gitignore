@@ -3,3 +3,22 @@ param_id_output
 .vscode
 .idea
 __pycache__/
+
+# coupler build products
+src/coupler/coupler
+src/coupler/coupler.o
+src/coupler/coupler_auxFun.o
+
+# outputs and temporary files
+sensitivity_outputs
+log_test.log
+.pytest*
+tutorial/interactive/.ipynb_checkpoints/
+tests/tmp/
+/tmp/
+/results/
+/files_1d/
+/simulation_outputs_cpp/
+
+# personal folder
+/beatrice/
