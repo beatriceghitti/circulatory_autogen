@@ -1601,11 +1601,20 @@ public:
 #include <petscmat.h>
 #include <petscsnes.h>
 #include <petscvec.h>
-
+        """
+            if self.couple_to_1d: #XXX for now
+                preSourceStuff += """
 #define SOLVER_CN       // Crank-Nicolson
 // #define SOLVER_BDF1  // BDF o1 (Backward Euler)
 // #define SOLVER_BDF2  // BDF o2
-
+            
+        """
+            else:
+                preSourceStuff += """
+// #define SOLVER_CN    // Crank-Nicolson
+// #define SOLVER_BDF1  // BDF o1 (Backward Euler)
+#define SOLVER_BDF2     // BDF o2
+                            
         """
 
         with open(generators_dir_path+'/cppGeneratorTemplateFunctions.cpp', 'r') as file:
@@ -3584,8 +3593,9 @@ int main(int argc, char* argv[]){
 """
 
         mainScript += f"""
-    double end_time = 20.0;
-    double save_time = 18.0;
+    double T = 1.0; // default period in seconds, change this.
+    double end_time = 20.*T;
+    double save_time = 17.*T;
     double dt = {self.dtSolver};
     double eps = 1e-12;
     std::string ODEsolver = \"{self.solver}\";
