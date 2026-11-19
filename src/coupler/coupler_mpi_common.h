@@ -17,6 +17,7 @@
 
 #include <mpi.h>
 #include <vector>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -36,10 +37,12 @@ enum CouplingColor {
 // a solver that starts a new time step without completing the previous one, instead of deadlocking.
 enum CouplingTag {
     TAG_CONFIG  = 1,   // coupler -> 0d/1d : handshake, COUPLING_CONFIG_LENGTH doubles
-                       //                    {N1d0d, couple_volume_sum, T0, nCC, COUPLING_TOL_TIME}
+                       //                    {N1d0d, couple_volume_sum, T0, nCC, COUPLING_TOL_TIME,
+                       //                     coupling_end_time(T0, nCC)}
     TAG_DONE    = 2,   // 0d/1d -> coupler : the solver has completed its time loop {final time, 0}
+                       //                    (the coupler aborts the job if the 0d solver stops before the end time)
     TAG_DT      = 10,  // 0d <-> coupler <-> 1d : {time, time step} within a global time step:
-                       //                         internal 0d time step, or {time, -999} at its end
+                       //                         internal 0d time step, or {time reached, COUPLING_END_OF_STEP} at its end
     TAG_DT_STEP = 11,  // 0d <-> coupler <-> 1d : {time, time step} at the start of a global time step
     TAG_DATA    = 20,  // 0d <-> coupler <-> 1d : N1d0d x COUPLING_DATA_LENGTH values (row-major),
                        //                         one row per one-to-one 1d-0d connection
@@ -47,7 +50,17 @@ enum CouplingTag {
 };
 
 constexpr int COUPLING_DATA_LENGTH   = 2;  // doubles per time/time step message and per 1d-0d connection
-constexpr int COUPLING_CONFIG_LENGTH = 5;  // doubles in the TAG_CONFIG handshake message
+constexpr int COUPLING_CONFIG_LENGTH = 6;  // doubles in the TAG_CONFIG handshake message
+constexpr double COUPLING_END_OF_STEP = -999.0; // time step value of the TAG_DT message that ends a global time step
+
+// Time synchronisation, checked by the coupler (which aborts the job on any mismatch):
+// - at the start of each global time step, the 0d solver proposes {its time, its time step}, and the
+//   1d solver replies with {its time, agreed time step}: the two times must agree within COUPLING_TOL_TIME,
+//   and the agreed time step must be > 0 and not larger than the proposed one. The 0d solver then
+//   continues from the agreed time, so that round-off differences between the solvers cannot accumulate;
+// - within the global time step, the 0d solver evaluates its right-hand side only at times in [time, time + dt];
+// - at the end of the global time step, the 0d solver must have reached time + dt;
+// - at the end of the simulation, both solvers must stop at the same time (see coupling_end_time()).
 
 // Tolerance used to round and compare times. The coupler and both solvers must use the same
 // value, because the coupler rounds and clamps the 0d times with it.
@@ -58,6 +71,32 @@ constexpr int COUPLING_CONFIG_LENGTH = 5;  // doubles in the TAG_CONFIG handshak
 // A fully 0d model (no coupler, so no MPI and no copy of this header) uses TOL_TIME from
 // CVSCppGenerator.py instead, and a 1d-only run uses tolTime from its input.ini.
 constexpr double COUPLING_TOL_TIME = 1e-11; // 1e-13
+
+// Inverse of COUPLING_TOL_TIME, rounded to an integer (1e11 for 1e-11), used to round times.
+inline const double COUPLING_INV_TOL_TIME = std::round(1.0 / COUPLING_TOL_TIME);
+
+// Round a time to the grid of COUPLING_TOL_TIME. All the times exchanged by the coupler and the solvers
+// are rounded with this function, which gives exactly the same result (bit for bit) in:
+// - the coupler and the coupled 0d solver (this function; Model0d::roundTime() calls it);
+// - the 1d solver: round_time() in auxMPIFunctions.py, with invTolTime = inv_tol_time(tolTime).
+// KEEP THEM IN SYNC. Two details make the C++ and Python results identical:
+// - halves are rounded away from zero, as std::round does (Python's round() rounds them to even);
+// - the time is multiplied and divided by the integer COUPLING_INV_TOL_TIME (exact in floating point),
+//   rather than divided and multiplied by COUPLING_TOL_TIME (inexact), so that e.g. 0.003 stays 0.003.
+inline double coupling_round_time(double t)
+{
+    return std::round(t * COUPLING_INV_TOL_TIME) / COUPLING_INV_TOL_TIME;
+}
+
+// End time of a coupled simulation: nCC cardiac cycles of duration T0, rounded with COUPLING_TOL_TIME.
+// Computed by the coupler and the 0d solver, which checks in the handshake that the coupler has the same value.
+// The 1d solver receives it from the coupler in the handshake (like COUPLING_TOL_TIME), so that all three
+// programs use exactly the same end time. Each solver stops after the time step that reaches it:
+// time >= end time - COUPLING_TOL_TIME (the coupler aborts the job if the 0d solver stops before).
+inline double coupling_end_time(double T0, int nCC)
+{
+    return coupling_round_time(nCC*T0);
+}
 
 struct CouplingLayout {
     MPI_Comm local;          // communicator containing only this program's ranks

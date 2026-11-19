@@ -51,7 +51,7 @@ int main(int argc, char* argv[]) {
         int size0d;
         MPI_Comm_size(comm0d, &size0d);
         if (coupler_rank < 0 || size0d != 1) {
-            std::cerr << "0d solver :: Error: coupled mode needs the coupler in the same mpirun, "
+            std::cerr << "0d solver :: ERROR: coupled mode needs the coupler in the same mpirun, "
                       << "and exactly 1 MPI rank for the 0d solver (" << size0d << " given)" << std::endl;
             MPI_Abort(MPI_COMM_WORLD, 1);
         }
@@ -135,7 +135,7 @@ int main(int argc, char* argv[]) {
     const double tIni = 0.0;
     const double dtSample = 1e-3;
     double tEnd = dtSample;
-    const double tEndGlob = std::round(nCC*T0 / tolTime) * tolTime;
+    const double tEndGlob = coupling_end_time(T0, nCC); // same end time as the coupler, see coupler_mpi_common.h
     const double dt0D = 1e-4;
     const double tSaveRes = ((nCC-2)*T0 > 0.0) ? (nCC-2)*T0 : 0.0;
     int saveResTime = 0;
@@ -183,7 +183,7 @@ int main(int argc, char* argv[]) {
             // if (std::abs(time-tEnd)<=tolTime) {
             if (time>=tEnd-tolTime) {
                 tEnd = tEnd + dtSample;
-                tEnd = std::round(tEnd / tolTime) * tolTime;
+                tEnd = coupling_round_time(tEnd);
                 saveResTime = 1;
             }
             if (saveResTime) {
@@ -200,7 +200,7 @@ int main(int argc, char* argv[]) {
             }
 
         } catch (const std::exception& e) {
-            std::cerr << "0d solver :: Error: " << e.what() << std::endl;
+            std::cerr << "0d solver :: ERROR: " << e.what() << std::endl;
             break;
         }
     }

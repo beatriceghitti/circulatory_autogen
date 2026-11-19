@@ -20,12 +20,17 @@
 //               0d -> coupler -> 1d : TAG_DATA (all one-to-one 1d-0d connections)
 //               1d -> coupler -> 0d : TAG_DATA
 //     [end of the global time step]
-//               0d -> coupler -> 1d : TAG_DT {time, -999}
-//               1d -> coupler -> 0d : TAG_DT {time, -999}
+//               0d -> coupler -> 1d : TAG_DT {time reached, -999 = COUPLING_END_OF_STEP}
+//               1d -> coupler -> 0d : TAG_DT (echo)
+//   The coupler checks all the times and time steps it relays (see "Time synchronisation" in coupler_mpi_common.h).
 //               (if volume sum) 1d -> coupler -> 0d : TAG_VOL
 //   [end]       0d -> coupler, 1d -> coupler : TAG_DONE
+//               The 0d solver must reach the end time nCC*T0 first: if it stops before, the 1d solver is
+//               still waiting for the next time step, so the coupler aborts the job instead of waiting.
 
 #include <iostream>
+#include <algorithm>
+#include <limits>
 #include <vector>
 #include <string>
 #include <fstream>
@@ -51,6 +56,7 @@ private:
     std::string ODEsolver;
     double T0 = 0.0;
     int nCC = 0;
+    double tEnd = 0.0; // end time of the coupled simulation, coupling_end_time(T0, nCC)
 
     size_t N1d0dTot = 0;
     size_t N1d0d = 0;
@@ -100,6 +106,17 @@ private:
         return status.MPI_TAG;
     }
 
+    // Time synchronisation checks (see coupler_mpi_common.h): stop the coupled run with a message.
+    // The exception is caught in main(), which aborts the MPI job.
+    static std::string num(double x) {
+        std::ostringstream s;
+        s << std::setprecision(15) << x;
+        return s.str();
+    }
+    static void sync_error(int step, const std::string& msg) {
+        throw std::runtime_error("time synchronisation error in global time step " + std::to_string(step) + ": " + msg);
+    }
+
 public:
     void init(const std::string& initFilePath, const CouplingLayout& layout) {
 
@@ -126,6 +143,24 @@ public:
         ODEsolver = config.value("ODEsolver", "CVODE");
         T0 = config.value("T0", 1.1);
         nCC = config.value("nCC", 5);
+        // Checked here, before the handshake: with nCC <= 0 the 0d solver would stop at once, while the
+        // 1d solver would run until the tEnd of its input.ini.
+        if (!(T0 > 0.0) || nCC < 1) {
+            std::ostringstream msg;
+            msg << "Coupler1d0d::init() : T0 must be > 0 and nCC >= 1 in " << initFilePath
+                << " (T0 = " << T0 << ", nCC = " << nCC << " given)";
+            throw std::runtime_error(msg.str());
+        }
+        tEnd = coupling_end_time(T0, nCC);
+        // Rounding times to multiples of tolTime only works while tolTime is larger than the spacing of
+        // double precision numbers around the end time (tolTime/epsilon: about 45000 s for 1e-11).
+        if (tEnd*std::numeric_limits<double>::epsilon() >= tolTime) {
+            std::ostringstream msg;
+            msg << "Coupler1d0d::init() : the end time nCC*T0 = " << tEnd << " is too large for the time tolerance "
+                << tolTime << " (it must be < " << tolTime/std::numeric_limits<double>::epsilon()
+                << "): increase COUPLING_TOL_TIME in coupler_mpi_common.h";
+            throw std::runtime_error(msg.str());
+        }
 
         std::string fileJson = inputFold+networkName+"_coupler1d0d.json";
         std::string dataJson = auxFun.readJsonFromFile(fileJson);
@@ -151,7 +186,8 @@ public:
                 N1d0d++;
             }
         }
-        std::cout << "Coupler1d0d :: ODE solver : " << ODEsolver << " || T0 : " << T0 << " || nCC : " << nCC << std::endl;
+        std::cout << "Coupler1d0d :: ODE solver : " << ODEsolver << " || T0 : " << T0 << " || nCC : " << nCC
+                  << " || end time : " << tEnd << std::endl;
         std::cout << "Coupler1d0d :: MPI world ranks : 0d solver " << rank0d << " || 1d solver " << rank1d << std::endl;
         std::cout << "Number of one-to-one 1d-0d connections: " << N1d0d << std::endl;
         std::cout << "Total number of connections (including global connections): " << N1d0dTot << " || With time step connection: "  << N1d0dTot+1 << std::endl;
@@ -159,8 +195,9 @@ public:
 
     // Send the coupling layout to both solvers, which check it against their own and abort the MPI job on any mismatch.
     void handshake() {
-        // tolTime: checked by the 0d solver, adopted by the 1d solver (see COUPLING_TOL_TIME)
-        std::vector<double> cfg = {static_cast<double>(N1d0d), couple_volume_sum ? 1.0 : 0.0, T0, static_cast<double>(nCC), tolTime};
+        // tolTime and tEnd: checked by the 0d solver, adopted by the 1d solver
+        // (see COUPLING_TOL_TIME and coupling_end_time() in coupler_mpi_common.h)
+        std::vector<double> cfg = {static_cast<double>(N1d0d), couple_volume_sum ? 1.0 : 0.0, T0, static_cast<double>(nCC), tolTime, tEnd};
         send(cfg, rank0d, TAG_CONFIG);
         send(cfg, rank1d, TAG_CONFIG);
     }
@@ -182,6 +219,7 @@ public:
         std::vector<double> one_done(DL);
 
         int count = 0;
+        int step = 0; // number of global time steps started
 
         // this is to initialise volume sum exchange from main1d to main0d, to compute total volume in the system
         if (couple_volume_sum){
@@ -200,19 +238,47 @@ public:
                 // or the notification that it has completed the simulation.
                 if (next_tag(rank0d) == TAG_DONE){
                     recv(zero_done, rank0d, TAG_DONE, "the end of the simulation");
+                    // Both solvers stop after the same time step only at the end time. If the 0d solver
+                    // stopped before (e.g. after an error), the 1d solver is waiting for the next time step
+                    // and would never send TAG_DONE: abort instead of waiting forever.
+                    const double time0d = coupling_round_time(zero_done[0]);
+                    const double timeGlobEnd = coupling_round_time(timeGlob+dtGlob);
+                    if (time0d < tEnd-tolTime || timeGlobEnd < tEnd-tolTime) {
+                        std::ostringstream msg;
+                        msg << std::setprecision(12) << "the 0d solver stopped at time " << time0d
+                            << " (global time " << timeGlobEnd << "), before the end time " << tEnd
+                            << " (nCC*T0 = " << nCC << "*" << T0 << ")";
+                        throw std::runtime_error(msg.str());
+                    }
                     std::cout << "Coupler1d0d :: 0d solver has completed the simulation" << std::endl;
                     break;
                 }
+                step++;
                 // read time step data from main0d and send it to main1D
                 recv(zero_buffer_dt, rank0d, TAG_DT_STEP, "the global time step");
+                const double time0d = zero_buffer_dt[0];
+                const double dt0d = zero_buffer_dt[1];
+                if (!std::isfinite(time0d) || !std::isfinite(dt0d) || !(dt0d > 0.0)) {
+                    sync_error(step, "the 0d solver proposed time " + num(time0d) + " and time step " + num(dt0d));
+                }
                 send(zero_buffer_dt, rank1d, TAG_DT_STEP);
 
-                // read time step data from main1D and send it back to main0d
+                // read time step data from main1D, check it, and send it back to main0d
                 recv(one_buffer_dt, rank1d, TAG_DT_STEP, "the global time step");
+                const double time1d = one_buffer_dt[0];
+                const double dt1d = one_buffer_dt[1];
+                if (!std::isfinite(time1d) || !std::isfinite(dt1d) || !(dt1d > 0.0) || dt1d > dt0d) {
+                    sync_error(step, "the 1d solver replied with time " + num(time1d) + " and time step " + num(dt1d)
+                                     + " (time step proposed by the 0d solver: " + num(dt0d) + ")");
+                }
+                if (std::abs(time1d - time0d) > tolTime) {
+                    sync_error(step, "the 0d solver is at time " + num(time0d) + ", the 1d solver at time " + num(time1d));
+                }
+                // the 0d solver continues from the agreed time (the 1d solver's)
                 send(one_buffer_dt, rank0d, TAG_DT_STEP);
 
-                timeGlob = one_buffer_dt[0];
-                dtGlob = one_buffer_dt[1];
+                timeGlob = time1d;
+                dtGlob = dt1d;
                 std::cout << std::setprecision(8) << "Coupler1d0d :: Global time exchanged : " << timeGlob << " || dt : " << dtGlob << std::endl;
             }
 
@@ -221,12 +287,25 @@ public:
             recv(zero_buffer_dt, rank0d, TAG_DT, "the internal time step");
             timeLoc = zero_buffer_dt[0];
             dtLoc = zero_buffer_dt[1];
+            const double stepEnd = timeGlob + dtGlob;
 
             // std::cout << "Coupler :: Local time step exchanged " << timeLoc << " " << dtLoc << std::endl;
 
+            if (!std::isfinite(timeLoc) || !std::isfinite(dtLoc)) {
+                sync_error(step, "the 0d solver sent internal time " + num(timeLoc) + " and time step " + num(dtLoc));
+            }
+
             time_step_exchanged = false;
-            if (dtLoc<0.){ // XXX dtLoc = -999 indicates that the ODE solver has completed the evolution to the next time level
+            if (dtLoc<0.){ // dtLoc = COUPLING_END_OF_STEP: the ODE solver has completed the evolution to the next time level
                 // std::cout << "Coupler :: Received negative 0d internal time step dtLoc " << dtLoc << std::endl;
+                if (dtLoc != COUPLING_END_OF_STEP) {
+                    sync_error(step, "the 0d solver sent a negative internal time step " + num(dtLoc) + " at time " + num(timeLoc));
+                }
+                // the 0d solver must have reached the end of the global time step
+                if (std::abs(timeLoc - stepEnd) > tolTime) {
+                    sync_error(step, "the 0d solver ended the time step at time " + num(timeLoc) + " instead of "
+                                     + num(stepEnd) + " (time " + num(timeGlob) + " + time step " + num(dtGlob) + ")");
+                }
 
                 // send time step data to main1D
                 send(zero_buffer_dt, rank1d, TAG_DT);
@@ -245,12 +324,17 @@ public:
                 continue;
             }
 
+            // the 0d solver must evaluate its right-hand side within the global time step
+            if (timeLoc < timeGlob-tolTime || timeLoc > stepEnd+tolTime) {
+                sync_error(step, "the 0d solver sent internal time " + num(timeLoc) + ", outside the global time step ["
+                                 + num(timeGlob) + ", " + num(stepEnd) + "]");
+            }
             // if (timeLoc>timeGlob+dtGlob){
-            if (std::round(timeLoc/tolTime)*tolTime > std::round((timeGlob+dtGlob)/tolTime)*tolTime) {
-                // but this should not happen
-                dtLoc = dtLoc - (timeLoc-(timeGlob+dtGlob));
-                timeLoc = timeGlob+dtGlob;
-                timeLoc = std::round(timeLoc/tolTime)*tolTime;
+            if (coupling_round_time(timeLoc) > coupling_round_time(stepEnd)) {
+                // beyond the end of the time step by round-off only (checked above): clamp it to the end
+                dtLoc = std::max(0.0, dtLoc - (timeLoc-stepEnd)); // never negative, i.e. never COUPLING_END_OF_STEP
+                timeLoc = stepEnd;
+                timeLoc = coupling_round_time(timeLoc);
                 // std::cout << "Coupler :: LOCAL TIME LARGER THAN GLOBAL TIME " << timeLoc << " " << timeGlob+dtGlob << " || NEW TIME STEP " << " " << dtLoc << std::endl;
 
                 zero_buffer_dt[0] = timeLoc;
@@ -281,10 +365,13 @@ public:
 
         // main0d has completed the simulation: main1D must have completed it too.
         recv(one_done, rank1d, TAG_DONE, "the end of the simulation");
+        if (!(std::abs(one_done[0] - zero_done[0]) <= tolTime)) {
+            sync_error(step, "the 1d solver stopped at time " + num(one_done[0]) + ", the 0d solver at time " + num(zero_done[0]));
+        }
         std::cout << "Coupler1d0d :: 1d solver has completed the simulation" << std::endl;
 
         std::cout << "### Coupler1d0d :: Stop execution! ###" << std::endl;
-        std::cout << "Global final time : " << std::round((timeGlob+dtGlob)/tolTime)*tolTime << std::endl;
+        std::cout << "Global final time : " << coupling_round_time(timeGlob+dtGlob) << std::endl;
         std::cout << "Final time of 0d solver : " << zero_done[0] << " || of 1d solver : " << one_done[0] << std::endl;
         std::cout << "Number of 1D-0D communications : " << count << std::endl;
     }

@@ -17,6 +17,7 @@ import argparse
 from configparser import ConfigParser
 # import warnings
 import time as timing
+import traceback
 # import random
 # from scipy.interpolate import interp1d
 import json
@@ -28,6 +29,8 @@ import bcs as bcs
 import windkessel as wdkl
 import auxCouplingFunctions as coupling
 import auxMPIFunctions as mpicpl
+
+EXPLICIT_ODE_SOLVERS = ("explEul", "Heun", "midpoint", "RK4") # fixed stages at dtFrac*dt (see run1DBFmod)
 
 PETSC_SOLVER = "CN"     # Crank-Nicolson
 # PETSC_SOLVER = "BDF1"   # BDF o1 (Backward Euler)
@@ -120,6 +123,7 @@ def run1DBFmod(AICstate=[], QICstate=[]):
     pipe_1d_0d_info = {}
     DATA_LENGTH = 0
     tolTime_coupler = None
+    tEndGlob_coupler = None
     if is_coupled:
         with open(inputFold+networkName+'_coupler1d0d.json', "r") as file:
             pipe_1d_0d_info = json.load(file)
@@ -140,8 +144,8 @@ def run1DBFmod(AICstate=[], QICstate=[]):
         # as we have introduced dedicated messages to transfer time level and time step
 
         # check that the coupler (and so the 0d solver) agrees on the coupling layout,
-        # and get the time tolerance shared by the coupler and the 0d solver
-        tolTime_coupler = cpl.handshake(N1d0d, couple_volume_sum, T0, nCC)
+        # and get the time tolerance and the end time shared by the coupler and the 0d solver
+        tolTime_coupler, tEndGlob_coupler = cpl.handshake(N1d0d, couple_volume_sum, T0, nCC)
 
 
     # [units conversion factors]
@@ -201,12 +205,20 @@ def run1DBFmod(AICstate=[], QICstate=[]):
             print(f"1d solver :: WARNING: tolTime {tolTime} in {init_file} is ignored in a coupled run, "
                   f"using the coupler's {tolTime_coupler}")
         tolTime = tolTime_coupler
-    if nCC>0:
-        tEndGlob = nCC*T0
+    # inverse of tolTime, used to round times exactly as the coupler and the 0d solver (mpicpl.round_time())
+    invTolTime = mpicpl.inv_tol_time(tolTime)
+    if is_coupled:
+        # coupled run: use the end time of the coupler and the 0d solver (coupling_end_time() in
+        # coupler_mpi_common.h), received in the handshake, so that all three stop at the same time step
+        tEndGlob = tEndGlob_coupler
     else:
-        tEndGlob = config.getfloat('discretization', 'tEnd', fallback=10.0)
-        nCC = int(tEndGlob/T0)
-    tEndGlob = round(tEndGlob/tolTime)*tolTime
+        # standalone run: nCC cardiac cycles, or the tEnd of input.ini if nCC <= 0
+        if nCC>0:
+            tEndGlob = nCC*T0
+        else:
+            tEndGlob = config.getfloat('discretization', 'tEnd', fallback=10.0)
+            nCC = int(tEndGlob/T0)
+        tEndGlob = mpicpl.round_time(tEndGlob, invTolTime)
     dtSample = config.getfloat('discretization', 'dtSample', fallback=0.001)
     tEnd = dtSample
     
@@ -321,9 +333,9 @@ def run1DBFmod(AICstate=[], QICstate=[]):
             if PETSC_SOLVER=="BDF1":
                 ODEord = 1
             else:
-                sys.exit(f'ERROR :: FV and ODE solver orders NOT matching: FVord={FVord} || {ODEsolver} with {PETSC_SOLVER}')
+                sys.exit(f'1d solver :: ERROR: FV and ODE solver orders NOT matching: FVord={FVord} || {ODEsolver} with {PETSC_SOLVER}')
         else:
-            sys.exit(f'ERROR :: FV and ODE solver orders NOT matching: FVord={FVord} || {ODEsolver}')
+            sys.exit(f'1d solver :: ERROR: FV and ODE solver orders NOT matching: FVord={FVord} || {ODEsolver}')
     elif FVord==2:
         if ODEsolver=='Heun' or ODEsolver=='midpoint':
             ODEord = 2
@@ -336,9 +348,9 @@ def run1DBFmod(AICstate=[], QICstate=[]):
             if PETSC_SOLVER=="CN" or PETSC_SOLVER=="BDF2":
                 ODEord = 2
             else:
-                sys.exit(f'ERROR :: FV and ODE solver orders NOT matching: FVord={FVord} || {ODEsolver} with {PETSC_SOLVER}')
+                sys.exit(f'1d solver :: ERROR: FV and ODE solver orders NOT matching: FVord={FVord} || {ODEsolver} with {PETSC_SOLVER}')
         else:
-            sys.exit(f'ERROR :: FV and ODE solver orders NOT matching: FVord={FVord} || {ODEsolver}')
+            sys.exit(f'1d solver :: ERROR: FV and ODE solver orders NOT matching: FVord={FVord} || {ODEsolver}')
 
     if ODEsolver=='explEul':
         dtFrac = np.array([0.])
@@ -549,7 +561,7 @@ def run1DBFmod(AICstate=[], QICstate=[]):
                 Ee[i] = EeRefV
 
         if vessTy[i]==-1:
-            sys.exit(f"1d solver :: Error: undetermined art/ven type for vessel {i}")
+            sys.exit(f"1d solver :: ERROR: undetermined art/ven type for vessel {i}")
 
     for i in range(nVess):
         if vessP0[i]<0.:
@@ -661,7 +673,7 @@ def run1DBFmod(AICstate=[], QICstate=[]):
             else:
                 Segments[i].append('junc1D')
         else:
-            sys.exit(f"Node type not defined for node {n1} : {nodeData[n1,1]}")
+            sys.exit(f"1d solver :: ERROR: Node type not defined for node {n1} : {nodeData[n1,1]}")
                 
         Segments[i].append(n2)
         if int(nodeData[n2,1]) == 0:
@@ -677,7 +689,7 @@ def run1DBFmod(AICstate=[], QICstate=[]):
             else:
                 Segments[i].append('junc1D')
         else:
-            sys.exit(f"Node type not defined for node {n2} : {nodeData[n2,1]}")
+            sys.exit(f"1d solver :: ERROR: Node type not defined for node {n2} : {nodeData[n2,1]}")
     
     print('1d solver :: Segments : ', Segments)
 
@@ -742,7 +754,7 @@ def run1DBFmod(AICstate=[], QICstate=[]):
                 # if nVessJunc == 1:
                 #     pass
                 # else:
-                #     sys.exit(f"1d solver :: Error: found 1d-0d junction connection with more than one 1d vessel: {nVessJunc}. Configuration still to be implemented.")
+                #     sys.exit(f"1d solver :: ERROR: found 1d-0d junction connection with more than one 1d vessel: {nVessJunc}. Configuration still to be implemented.")
                 Nodes[i].append(nVessJunc)
                 print(f"1d solver :: found 1d-0d junction connection with {nVessJunc} 1d vessels.")
             else:
@@ -761,9 +773,9 @@ def run1DBFmod(AICstate=[], QICstate=[]):
                 if nVessJunc == int(nodeData[i,1]):
                     Nodes[i].append(nVessJunc)
                 else:
-                    sys.exit(f"1d solver :: Error: failed to find all vessels converging to the 1D junction {idxN}: {nVessJunc} instead of {int(nodeData[i,1])}")    
+                    sys.exit(f"1d solver :: ERROR: failed to find all vessels converging to the 1D junction {idxN}: {nVessJunc} instead of {int(nodeData[i,1])}")    
         else:
-            sys.exit(f"Node type not defined for node {idxN} : {nodeData[i,1]}")
+            sys.exit(f"1d solver :: ERROR: Node type not defined for node {idxN} : {nodeData[i,1]}")
     
     print('1d solver :: Nodes : ', Nodes)
 
@@ -870,7 +882,7 @@ def run1DBFmod(AICstate=[], QICstate=[]):
             if idx_flow==-1:
                 idx_flow = map_vars.get(flow_var, -1)
                 if idx_flow==-1:
-                    sys.exit(f"1d solver :: Error: flow variable not found for vessel {nameV} in the initial states/variables files: {idx_flow}.")
+                    sys.exit(f"1d solver :: ERROR: flow variable not found for vessel {nameV} in the initial states/variables files: {idx_flow}.")
                     # Qinit = 0.
                 flow_is_state = False
 
@@ -878,7 +890,7 @@ def run1DBFmod(AICstate=[], QICstate=[]):
             if idx_press==-1:
                 idx_press = map_vars.get(press_var, -1)
                 if idx_press==-1:
-                    sys.exit(f"1d solver :: Error: pressure variable not found for vessel {nameV} in the initial states/variables files: {idx_press}.")
+                    sys.exit(f"1d solver :: ERROR: pressure variable not found for vessel {nameV} in the initial states/variables files: {idx_press}.")
                     # Pinit = 90.*mmHgDyncm2
                 press_is_state = False
 
@@ -915,7 +927,7 @@ def run1DBFmod(AICstate=[], QICstate=[]):
         elif ICtype==2:
             Pinit = np.copy(vessP0) # [dyne/cm^2] initial pressure
         else:
-            sys.exit(f"1d solver :: Error: wrong IC type assigned {ICtype}")
+            sys.exit(f"1d solver :: ERROR: wrong IC type assigned {ICtype}")
         
         # set initial data for vessels 
         for i in range(nVess): 
@@ -1002,7 +1014,7 @@ def run1DBFmod(AICstate=[], QICstate=[]):
                 dtLoc[i] = num.timeStep(v[i].Q, v[i].dx, K[i], A0[i], mTL[i], nTL[i])        
             dt = np.min(dtLoc)
             if dt<=tolTime:
-                sys.exit(f"1d solver :: Error: 1D time step {dt} smaller than tolerance {tolTime}")
+                sys.exit(f"1d solver :: ERROR: 1D time step {dt} smaller than tolerance {tolTime}")
             if time+dt>tEnd:
                 dt = tEnd - time  
             # if time>=tEndGlob:
@@ -1060,6 +1072,22 @@ def run1DBFmod(AICstate=[], QICstate=[]):
                     timeLoc = parent_data_dt[0]
                     dtLoc = parent_data_dt[1]
 
+                    if ODEsolver in EXPLICIT_ODE_SOLVERS:
+                        # The 0d solver evaluates the stages of the same explicit method at the fractions dtFrac
+                        # of the time step, and the boundary fluxes are weighted accordingly: check them
+                        # (the coupler checks the times against the global time step for all ODE solvers).
+                        nStages = len(dtFrac)
+                        if dtLoc<0.:
+                            if count!=nStages:
+                                sys.exit(f"1d solver :: ERROR: the 0d solver evaluated {count} stages in the time step at "
+                                         f"time {time}, instead of {nStages} for {ODEsolver}")
+                        elif count>=nStages:
+                            sys.exit(f"1d solver :: ERROR: the 0d solver evaluated more than {nStages} stages in the time "
+                                     f"step at time {time}, for {ODEsolver}")
+                        elif (abs(dtLoc-dtFrac[count]*dt)>tolTime or abs(timeLoc-(time+dtFrac[count]*dt))>tolTime):
+                            sys.exit(f"1d solver :: ERROR: stage {count} of the 0d solver at time {timeLoc} with dtLoc {dtLoc}, "
+                                     f"instead of time {time+dtFrac[count]*dt} with dtLoc {dtFrac[count]*dt} for {ODEsolver}")
+
                     if dtLoc<0.:
                         # print(f"1d solver :: Received negative 0d internal time step dtLoc {dtLoc}")
                         cpl.send_dt(parent_data_dt)
@@ -1089,7 +1117,7 @@ def run1DBFmod(AICstate=[], QICstate=[]):
                         pipeID = str(i+1)
                         if "port_volume_sum" in pipe_1d_0d_info[pipeID]:
                             if pipe_1d_0d_info[pipeID]["port_volume_sum"] == 1:
-                                print("ERROR :: this is a volume sum port, use its dedicated messages for this connection. Exiting.")
+                                print("1d solver :: ERROR: this is a volume sum port, use its dedicated messages for this connection. Exiting.")
                                 sys.exit()
 
                         parent_data.append( parent_data_all[i] )
@@ -1130,7 +1158,7 @@ def run1DBFmod(AICstate=[], QICstate=[]):
                         if (typeJ=='juncHyb' and Nodes[idxJ][1]=='juncHyb'):
                             nVJ = Nodes[idxJ][-1]
                         else:
-                            sys.exit(f"1d solver :: Error: junction type mismatch for 1d-0d coupling at node {idxJ} : {typeJ} & {Nodes[idxJ][1]}")
+                            sys.exit(f"1d solver :: ERROR: junction type mismatch for 1d-0d coupling at node {idxJ} : {typeJ} & {Nodes[idxJ][1]}")
                             
                         if nVJ==1:
                             if type_0Dbc==0 and type_0Dport==1: # 0d flow bc --> 0d pressure port --> receiving pressure and resistance
@@ -1162,7 +1190,7 @@ def run1DBFmod(AICstate=[], QICstate=[]):
 
                         else:
                             if type_0Dbc==0 and type_0Dport==1: # 0d flow bc --> 0d pressure port --> receiving pressure and resistance
-                                sys.exit(f"1d solver :: Error: hybrid junction with nVJ={nVJ} 1D vessels and 0D pressure port (flow BC) still to be implemented. Exiting.") 
+                                sys.exit(f"1d solver :: ERROR: hybrid junction with nVJ={nVJ} 1D vessels and 0D pressure port (flow BC) still to be implemented. Exiting.") 
                             
                             elif type_0Dbc==1 and type_0Dport==0: # 0d pressure bc --> 0d flow port --> receiving flow
                                 Q0D = parent_data[i][0]/convQ
@@ -1266,7 +1294,7 @@ def run1DBFmod(AICstate=[], QICstate=[]):
                                             v[iV].FnumQBCR[:] = mod.pF(QStar1D_multi[j,:], K[iV], A0[iV], mTL[iV], nTL[iV])
 
                             else:
-                                sys.exit("FVord=1 + ODEsolver="+str(ODEsolver)+" with count "+str(count))
+                                sys.exit("1d solver :: ERROR: FVord=1 + ODEsolver="+str(ODEsolver)+" with count "+str(count))
 
                         elif FVord==2:
                             if (ODEsolver=="Heun" or ODEsolver=="midpoint"):
@@ -1284,7 +1312,7 @@ def run1DBFmod(AICstate=[], QICstate=[]):
                                             elif gJ[j]==1:
                                                 v[iV].FnumQBCR[:] = v[iV].FnumQBCR[:] + weights[count]*mod.pF(QStar1D_multi[j,:], K[iV], A0[iV], mTL[iV], nTL[iV])
                                 else:
-                                    sys.exit("FVord=2 + ODEsolver="+str(ODEsolver)+" with count "+str(count))
+                                    sys.exit("1d solver :: ERROR: FVord=2 + ODEsolver="+str(ODEsolver)+" with count "+str(count))
 
                             elif ODEsolver=="RK4":
                                 if count<4:
@@ -1301,7 +1329,7 @@ def run1DBFmod(AICstate=[], QICstate=[]):
                                             elif gJ[j]==1:
                                                 v[iV].FnumQBCR[:] = v[iV].FnumQBCR[:] + weights[count]*mod.pF(QStar1D_multi[j,:], K[iV], A0[iV], mTL[iV], nTL[iV])
                                 else:
-                                    sys.exit("FVord=2 + ODEsolver="+str(ODEsolver)+" with count "+str(count))
+                                    sys.exit("1d solver :: ERROR: FVord=2 + ODEsolver="+str(ODEsolver)+" with count "+str(count))
 
                             elif ODEsolver=="CVODE":
                                 if nVJ==1:
@@ -1337,10 +1365,10 @@ def run1DBFmod(AICstate=[], QICstate=[]):
                                                 v[iV].FnumQBCR[:] = weights[0]*v[iV].FnumQBCR_old[:] + weights[1]*v[iV].FnumQBCR_new[:]
 
                                 elif PETSC_SOLVER=="BDF2": #XXX TODO
-                                    sys.exit(f"Coupling between FVord=2 and ODEsolver={ODEsolver} with {PETSC_SOLVER} not yet implemented. Exiting.")
+                                    sys.exit(f"1d solver :: ERROR: Coupling between FVord=2 and ODEsolver={ODEsolver} with {PETSC_SOLVER} not yet implemented. Exiting.")
 
                             else:
-                                sys.exit("FVord=2 + ODEsolver="+str(ODEsolver)+" with count "+str(count))
+                                sys.exit("1d solver :: ERROR: FVord=2 + ODEsolver="+str(ODEsolver)+" with count "+str(count))
 
                     # write and send to coupler data with computed 0d coupling variables for all 1d-0d connections (one message)
                     cpl.send_data(np.array(one_data, dtype=np.float64).reshape(N1d0d, DATA_LENGTH))
@@ -1364,13 +1392,13 @@ def run1DBFmod(AICstate=[], QICstate=[]):
             # UPDATE TIME
             it +=1
             time = time + dt
-            time = round(time/tolTime)*tolTime
+            time = mpicpl.round_time(time, invTolTime)
             
             saveResTime = 0
             # if np.abs(time-tEnd)<=tolTime:
             if time>=tEnd-tolTime:
                 tEnd = tEnd + dtSample
-                tEnd = round(tEnd/tolTime)*tolTime
+                tEnd = mpicpl.round_time(tEnd, invTolTime)
                 saveResTime = 1
         
             # STORE SOLUTION IN TIME & SPACE
@@ -1394,7 +1422,10 @@ def run1DBFmod(AICstate=[], QICstate=[]):
                 run_one = False
         
         except Exception as e:
-            print(f"1d solver :: Error: {e}", file=sys.stderr)
+            # the time loop has its own except Exception, 
+            # which catches most runtime errors before they reach abort_if_active().
+            print(f"1d solver :: ERROR: {e}", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
             break
 
 
@@ -1427,8 +1458,8 @@ if __name__=='__main__':
     try:
         run1DBFmod()
     except BaseException:
-        # includes sys.exit()/exit(): in a coupled run, abort the whole MPI job, otherwise
-        # the coupler and the 0d solver would wait forever for this solver
+        # includes sys.exit()/exit(): in a coupled run, print the error with its traceback and abort
+        # the whole MPI job, otherwise the coupler and the 0d solver would wait forever for this solver
         mpicpl.abort_if_active()
         raise
   

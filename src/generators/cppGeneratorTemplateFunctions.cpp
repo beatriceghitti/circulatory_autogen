@@ -280,12 +280,25 @@ int Model0d::initCoupling(int couplerRank, double T0, int nCC)
     parent_data_vol.assign(DATA_LENGTH, 0.0);
 
     // Handshake: check that the coupler agrees on the coupling layout.
+    // First check its length: a coupler built from another version of coupler_mpi_common.h would
+    // otherwise stop the job with an MPI truncation error, or leave values of cfg uninitialised.
+    MPI_Status status;
+    MPI_Probe(coupler_rank, TAG_CONFIG, MPI_COMM_WORLD, &status);
+    int n = -1;
+    MPI_Get_count(&status, MPI_DOUBLE, &n);
+    if (n != COUPLING_CONFIG_LENGTH) {
+        std::cerr << "0d solver :: Error: the coupler sent " << n << " values in the handshake instead of "
+                  << COUPLING_CONFIG_LENGTH << ": the coupler and this main0d were built from different versions"
+                  << " of coupler_mpi_common.h (rebuild the coupler and regenerate the model)" << std::endl;
+        return 1;
+    }
     double cfg[COUPLING_CONFIG_LENGTH];
     MPI_Recv(cfg, COUPLING_CONFIG_LENGTH, MPI_DOUBLE, coupler_rank, TAG_CONFIG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-    const double mine[COUPLING_CONFIG_LENGTH] = {static_cast<double>(N1d0d), static_cast<double>(couple_volume_sum), T0, static_cast<double>(nCC), tolTime};
+    const double mine[COUPLING_CONFIG_LENGTH] = {static_cast<double>(N1d0d), static_cast<double>(couple_volume_sum), T0, static_cast<double>(nCC),
+                                                 tolTime, coupling_end_time(T0, nCC)};
     for (int j = 0; j < COUPLING_CONFIG_LENGTH; ++j) {
         if (std::abs(cfg[j]-mine[j]) > 1e-12*std::abs(mine[j])) {
-            std::cerr << "0d solver :: Error: coupling mismatch with the coupler [N1d0d, couple_volume_sum, T0, nCC, tolTime]: coupler {";
+            std::cerr << "0d solver :: Error: coupling mismatch with the coupler [N1d0d, couple_volume_sum, T0, nCC, tolTime, tEnd]: coupler {";
             for (int k = 0; k < COUPLING_CONFIG_LENGTH; ++k) std::cerr << (k ? ", " : "") << cfg[k];
             std::cerr << "} vs 0d solver {";
             for (int k = 0; k < COUPLING_CONFIG_LENGTH; ++k) std::cerr << (k ? ", " : "") << mine[k];

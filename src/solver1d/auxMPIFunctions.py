@@ -13,17 +13,42 @@ objects, which the C++ side cannot decode.
 The constants below must match src/coupler/coupler_mpi_common.h. KEEP THEM IN SYNC.
 """
 
+import math
 import sys
+import traceback
 import numpy as np
 
 # Must match coupler_mpi_common.h
 COLOR_COUPLER, COLOR_SOLVER0D, COLOR_SOLVER1D = 0, 1, 2
 TAG_CONFIG, TAG_DONE, TAG_DT, TAG_DT_STEP, TAG_DATA, TAG_VOL = 1, 2, 10, 11, 20, 30
 DATA_LENGTH = 2     # doubles per time/time step message and per 1d-0d connection
-CONFIG_LENGTH = 5   # doubles in the TAG_CONFIG handshake: {N1d0d, couple_volume_sum, T0, nCC, tolTime}
+CONFIG_LENGTH = 6   # doubles in the TAG_CONFIG handshake: {N1d0d, couple_volume_sum, T0, nCC, tolTime, tEnd}
 
 # The coupling currently in use (if any), so that errors can abort the whole MPI job.
 _active_coupling = None
+
+
+# Rounding of times to the grid of the time tolerance tolTime: must give exactly the same result as
+# coupling_round_time() in coupler_mpi_common.h, used by the coupler and the 0d solver. KEEP THEM IN SYNC.
+# Used also in standalone 1d runs (it does not need MPI).
+
+def _round_half_away(x):
+    """Round to the nearest integer, halves away from zero, as std::round in C++ (Python's round() rounds halves to even)."""
+    a = abs(float(x))
+    q = math.floor(a)           # a - q is exact in floating point
+    if a - q >= 0.5:
+        q += 1
+    return math.copysign(float(q), x)
+
+
+def inv_tol_time(tolTime):
+    """Inverse of the time tolerance, rounded to an integer (1e11 for 1e-11), as COUPLING_INV_TOL_TIME."""
+    return _round_half_away(1.0 / tolTime)
+
+
+def round_time(t, invTolTime):
+    """Round time t to the grid of tolTime = 1/invTolTime, as coupling_round_time() in coupler_mpi_common.h."""
+    return _round_half_away(t * invTolTime) / invTolTime
 
 
 class MPICoupling1D:
@@ -57,9 +82,17 @@ class MPICoupling1D:
         """
         Receive the coupling layout from the coupler and check that it matches ours.
 
-        Returns the time tolerance of the coupler (COUPLING_TOL_TIME in coupler_mpi_common.h),
-        which the 1d solver must use in a coupled run.
+        Returns the time tolerance and the end time of the coupled simulation (COUPLING_TOL_TIME and
+        coupling_end_time() in coupler_mpi_common.h), which the 1d solver must use in a coupled run.
         """
+        # First check the length: with a coupler built from another version of coupler_mpi_common.h,
+        # the missing values of cfg would be left uninitialised (or MPI would report a truncation error).
+        status = self.MPI.Status()
+        self.world.Probe(source=self.coupler, tag=TAG_CONFIG, status=status)
+        n = status.Get_count(self.MPI.DOUBLE)
+        if n != CONFIG_LENGTH:
+            self.abort(f"1d solver :: Error: the coupler sent {n} values in the handshake instead of {CONFIG_LENGTH}: "
+                       "the coupler and this 1d solver come from different versions (rebuild the coupler)")
         cfg = np.empty(CONFIG_LENGTH, dtype=np.float64)
         self.world.Recv(cfg, source=self.coupler, tag=TAG_CONFIG)
         mine = np.array([N1d0d, 1.0 if couple_volume_sum else 0.0, T0, nCC], dtype=np.float64)
@@ -69,8 +102,12 @@ class MPICoupling1D:
         tolTime = float(cfg[4])
         if not tolTime > 0.0:
             self.abort(f"1d solver :: Error: invalid time tolerance from the coupler: {tolTime}")
+        tEnd = float(cfg[5])
+        # the coupler rounds nCC*T0 to a multiple of tolTime (this also rejects NaN)
+        if not abs(tEnd - nCC*T0) <= tolTime:
+            self.abort(f"1d solver :: Error: invalid end time from the coupler: {tEnd} (nCC*T0 = {nCC*T0})")
         self.N1d0d = int(N1d0d)
-        return tolTime
+        return tolTime, tEnd
 
     def recv_step_dt(self):
         """Receive {time, time step} proposed by the 0d solver at the start of a global time step."""
@@ -121,6 +158,7 @@ class MPICoupling1D:
         if message:
             print(message, file=sys.stderr, flush=True)
         sys.stdout.flush()
+        sys.stderr.flush()
         self.world.Abort(code)
 
     def _send(self, data, length, tag):
@@ -134,7 +172,14 @@ def abort_if_active(code=1):
     """
     Abort the MPI job if a coupling is active and not finalised yet.
     Otherwise, the coupler and the 0d solver would instead wait forever.
+
+    When called from an 'except' block, the error being handled is printed first, with its traceback
+    (for sys.exit("message"), the traceback ends with "SystemExit: message"). MPI_Abort ends the
+    process at once, so Python would never get to print it.
     """
     if _active_coupling is not None:
+        if sys.exc_info()[0] is not None:
+            print("1d solver :: Error: the 1d solver stopped with:", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
         _active_coupling.abort("1d solver :: Error: terminated before the end of the coupled simulation, "
                                "aborting the MPI job", code)

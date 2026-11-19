@@ -8,7 +8,8 @@ Created on Tue Dec 31 09:21:55 2019
 
 import math
 import numpy as np
-from scipy.integrate import quadrature
+# from scipy.integrate import quadrature #XXX Deprecated since SciPy version 1.12.0
+from scipy.integrate import quad
 from scipy.optimize import fsolve
 import sys
 
@@ -377,7 +378,8 @@ class model:
             intRI = 4.*(cR - cL)        
         else: # numerical integration
             funRI = lambda t : self.waveSpeed(t, K, a0, m, n)/t
-            intRI, abserr = quadrature(funRI, aL, aR, maxiter=500)
+            # intRI, abserr = quadrature(funRI, aL, aR, maxiter=500)
+            intRI, _ = quad(funRI, aL, aR, limit=500)
             
         return intRI
     

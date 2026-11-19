@@ -40,6 +40,50 @@ TOL_TIME = 1e-11 # 1e-13; time tolerance of fully 0d models only (coupled models
 REL_TOL = 1e-7
 ABS_TOL = 1e-9
 
+# A line of libCellML's C code that computes a variable: "    variables[k] = ...;" (not a comparison "==").
+VARIABLE_LINE_PATTERN = re.compile(r"^\s*variables\[\d+\]\s*=(?!=)")
+
+
+def check_variables_computation_order(ordered_lines, all_lines):
+    """
+    Check the lines of the generated computeNonExternalVariables(): each variable must be computed before it is used,
+    otherwise it would be used with its value from the previous evaluation of the model.
+
+    ordered_lines: the lines "variables[k] = ...;" in the order in which they are written.
+    all_lines: all the lines computing variables in libCellML's code, including the external variables.
+
+    Raises an error if a variable is used before it is computed. Prints a warning if a variable uses an external
+    variable: external variables are set by getExternalVariables(), after computeNonExternalVariables(), so these
+    variables use the external value of the previous evaluation.
+    """
+    index_pattern = re.compile(r"variables\[(\d+)\]")
+
+    def split(line2):
+        lhs, rhs = line2.split("=", 1)
+        return int(index_pattern.search(lhs).group(1)), {int(k) for k in index_pattern.findall(rhs)}
+
+    computed_at = {}
+    for i, line2 in enumerate(ordered_lines):
+        computed_at.setdefault(split(line2)[0], i)
+    external = {split(line2)[0] for line2 in all_lines if 'external' in line2}
+
+    used_before = []
+    uses_external = []
+    for i, line2 in enumerate(ordered_lines):
+        lhs, used = split(line2)
+        for k in sorted(used):
+            if k in computed_at and computed_at[k] >= i:
+                used_before.append(f"variables[{k}] in: {line2.strip()}")
+        if used & external:
+            uses_external.append(f"variables{sorted(used & external)} in: {line2.strip()}")
+    if used_before:
+        raise RuntimeError("generated computeNonExternalVariables(): variables used before they are computed "
+                           "(they would take their value from the previous evaluation):\n  " + "\n  ".join(used_before))
+    if uses_external:
+        print("WARNING :: generated computeNonExternalVariables(): these variables use external variables, which are "
+              "set after them by getExternalVariables(), so they use the external value from the previous "
+              "evaluation:\n  " + "\n  ".join(uses_external))
+
 class CVS0DCppGenerator(object):
     '''
     Generates Cpp files from CellML files and annotations for a 0D model
@@ -1415,6 +1459,7 @@ public:
     
         otherHeaderInits += """
     void solveOneStep(double dtLoc);
+    double roundTime(double t) const;
         """
 
         otherHeaderInits += """
@@ -1853,7 +1898,7 @@ Model0d::Model0d() :
                     line += "    computeVariables(voi, dt, states, rates, variables);"  # add indented statement
 
                     lines_to_pass_rates.append(iStart)
-                    pattern = re.compile(r"variables\[\d+\]\s*=\s*")
+                    pattern = VARIABLE_LINE_PATTERN
                     for iL2, line2 in enumerate(lines[iStart:iEnd], start=iStart):
                         # if 'variables' in line2:
                         if pattern.search(line2):
@@ -1888,7 +1933,7 @@ Model0d::Model0d() :
                     line += "}\n"  
 
                     lines_to_pass_variables.append(iStart)
-                    pattern = re.compile(r"variables\[\d+\]\s*=\s*")
+                    pattern = VARIABLE_LINE_PATTERN
                     for iL2, line2 in enumerate(lines[iStart:iEnd], start=iStart):
                         # if 'variables' in line2:
                         if pattern.search(line2):
@@ -1899,15 +1944,20 @@ Model0d::Model0d() :
                     line += "\n"
                     line += "void Model0d::computeNonExternalVariables(double voi, double *states, double *rates, double *variables)\n"
                     line += "{\n"
-                    for iL2, line2 in enumerate(lines[iStart+1:iEnd], start=iStart+1):
-                        if pattern.search(line2) and 'external' not in line2:
-                            line += line2+"\n"
-                    if len(lines_to_pass_rates)>0:
-                        for iL2 in lines_to_pass_rates[1:]:
-                            line2 = lines[iL2]
-                            if line2 not in lines[iStart+1:iEnd]:
-                                line += line2+"\n"
-                                # print("line to add from computeRates:", iL2, line2)
+                    # The variables of libCellML's computeRates() come first, in their order, then those only in its
+                    # computeVariables(). libCellML's computeVariables() does not recompute the variables that depend
+                    # only on voi and constants (e.g. a prescribed inlet flow), because it expects computeRates() to
+                    # have been called before at the same voi: listing its lines first would compute the variables that
+                    # use them with their values from the previous evaluation (wrong, oscillating 0d solutions).
+                    rates_var_lines = [lines[iL2] for iL2 in lines_to_pass_rates[1:]]
+                    variables_var_lines = [line2 for line2 in lines[iStart+1:iEnd] if pattern.search(line2)]
+                    non_external_lines = []
+                    for line2 in rates_var_lines + variables_var_lines:
+                        if 'external' not in line2 and line2 not in non_external_lines:
+                            non_external_lines.append(line2)
+                    check_variables_computation_order(non_external_lines, rates_var_lines + variables_var_lines)
+                    for line2 in non_external_lines:
+                        line += line2+"\n"
                     line += "}" 
 
                 if iL in init_lines_to_mod:
@@ -2090,10 +2140,11 @@ void Model0d::set_ode_solver(std::string ODEsolver)
     // ierr = TSSetMaxTime(ts, 10.);
     // std::cout << "set_ode_solver :: TSSetMaxTime "<< ierr << std::endl;
 
-    // Options for matrix-free BDF1
+    // Fixed time steps (the default TSBDF adaptor would change them)
     PetscOptionsSetValue(NULL, "-ts_adapt_type", "none");
-    PetscOptionsSetValue(NULL, "-ts_bdf_single_jacobian", NULL);
-    PetscOptionsSetValue(NULL, "-snes_mf_operator", NULL);
+    // REMOVED: Options for matrix-free BDF1
+    // PetscOptionsSetValue(NULL, "-ts_bdf_single_jacobian", NULL);
+    // PetscOptionsSetValue(NULL, "-snes_mf_operator", NULL);
 #endif
 
 #ifdef SOLVER_BDF2
@@ -2108,16 +2159,17 @@ void Model0d::set_ode_solver(std::string ODEsolver)
     // ierr = TSSetMaxTime(ts, 10.);
     // std::cout << "set_ode_solver :: TSSetMaxTime "<< ierr << std::endl;
 
-    // Options for matrix-free BDF2
+    // Fixed time steps (the default TSBDF adaptor would change them)
     PetscOptionsSetValue(NULL, "-ts_adapt_type", "none");
-    PetscOptionsSetValue(NULL, "-ts_bdf_single_jacobian", NULL);
-    PetscOptionsSetValue(NULL, "-snes_mf_operator", NULL);
+    // REMOVED: Options for matrix-free BDF2
+    // PetscOptionsSetValue(NULL, "-ts_bdf_single_jacobian", NULL);
+    // PetscOptionsSetValue(NULL, "-snes_mf_operator", NULL);
 #endif 
 
-    // Tolerances
+    // Tolerances: with fixed time steps, they are used by the convergence test of the Newton iterations (SNESConvergedWRMS)
     // in order: scalar absolute tolerances, vector of absolute tolerances, scalar relative tolerances, vector of relative tolerances
-    double reltol = 1e-7; // TODO get this from user_inputs.yaml too
-    double abstol = 1e-9; // TODO get this from user_inputs.yaml too
+    double reltol = {REL_TOL}; // TODO get this from user_inputs.yaml too
+    double abstol = {ABS_TOL}; // TODO get this from user_inputs.yaml too
     ierr = TSSetTolerances(ts, abstol, NULL, reltol, NULL); 
     std::cout << "set_ode_solver :: TSSetTolerances "<< ierr << std::endl;
 
@@ -2126,41 +2178,41 @@ void Model0d::set_ode_solver(std::string ODEsolver)
     std::cout << "set_ode_solver :: TSGetSNES "<< ierr << std::endl;
     ierr = SNESSetType(snes, SNESNEWTONLS); // set the algorithm/method to be used to solve the nonlinear system with the given SNES
     std::cout << "set_ode_solver :: SNESSetType "<< ierr << std::endl;
+    // No line search: full Newton steps, as in CVODE. SNESNEWTONLS is Newton's method with a line search object, and
+    // its type SNESLINESEARCHBASIC (also called SNESLINESEARCHNONE) is "not a line search at all" (PETSc docs): it takes
+    // the full step x_new = x - lambda*dx with lambda = 1 fixed, and only evaluates the residual at x_new for the
+    // convergence test. The default type (bt, backtracking) would instead shrink lambda until the residual decreases:
+    // near the solution, the residual of stiff models is dominated by round-off and cannot decrease, so the steps
+    // were shrunk to ~1e-12 and the Newton iterations failed.
+    SNESLineSearch linesearch;
+    ierr = SNESGetLineSearch(snes, &linesearch);
+    ierr = SNESLineSearchSetType(linesearch, SNESLINESEARCHBASIC);
+    std::cout << "set_ode_solver :: SNESLineSearchSetType "<< ierr << std::endl;
+    // Set the function (SNESConvergedWRMS) that is to be used to test for convergence of the nonlinear iterative solution.
+    ierr = SNESSetConvergenceTest(snes, SNESConvergedWRMS, ts, NULL); // see SNESConvergedWRMS
+    std::cout << "set_ode_solver :: SNESSetConvergenceTest "<< ierr << std::endl;
 
     // Linear solver (dense)
     ierr = SNESGetKSP(snes, &ksp); // return the KSP (linear solver) context for the SNES solver
     std::cout << "set_ode_solver :: SNESGetKSP "<< ierr << std::endl;
-    ierr = KSPSetType(ksp, KSPGMRES); // GMRES // set the algorithm/method to be used to solve the linear system with the given KSP
+    // The Jacobian is built by PETSc with finite differences, one column at a time (no Jacobian function is given),
+    // and the linear systems are solved exactly with a dense LU factorisation, as in CVODE. 
+    // These systems are small but badly scaled (stiff modes): iterative solvers (GMRES with ILU or Jacobi) would give inexact Newton steps that fail.
+    // ierr = KSPSetType(ksp, KSPGMRES); // GMRES
     // ierr = KSPSetType(ksp, KSPFGMRES); // flexible GMRES
-    // ierr = KSPSetType(ksp, KSPPREONLY); // KSPPREONLY: method that applies ONLY the preconditioner exactly once.
+    ierr = KSPSetType(ksp, KSPPREONLY); // KSPPREONLY: method that applies ONLY the preconditioner exactly once.
     std::cout << "set_ode_solver :: KSPSetType "<< ierr << std::endl;
 
     // Preconditioner
     ierr = KSPGetPC(ksp, &pc); // return a pointer to the preconditioner (PC) context with the KSP
     std::cout << "set_ode_solver :: KSPGetPC "<< ierr << std::endl;
 
-    // Build PC for a particular preconditioner type
-#ifdef SOLVER_CN
+    // Preconditioner: exact LU factorisation, for every method (KSPPREONLY applies it once, i.e. a direct solve)
     // ierr = PCSetType(pc, PCNONE);
     // ierr = PCSetType(pc, PCJACOBI); // PCJACOBI: Jacobi, i.e. diagonal scaling preconditioning.
-    // ierr = PCSetType(pc, PCLU); // PCLU: this uses a direct solver, based on LU factorization, as a preconditioner.
-    ierr = PCSetType(pc, PCILU);
+    // ierr = PCSetType(pc, PCILU);
+    ierr = PCSetType(pc, PCLU); // PCLU: this uses a direct solver, based on LU factorization, as a preconditioner.
     std::cout << "set_ode_solver :: PCSetType "<< ierr << std::endl;
-#endif 
-
-#ifdef SOLVER_BDF1
-    // ierr = PCSetType(pc, PCNONE);
-    ierr = PCSetType(pc, PCJACOBI); // PCJACOBI: Jacobi, i.e. diagonal scaling preconditioning.
-    // ierr = PCSetType(pc, PCLU); // PCLU: this uses a direct solver, based on LU factorization, as a preconditioner.
-    std::cout << "set_ode_solver :: PCSetType "<< ierr << std::endl;
-#endif
-
-#ifdef SOLVER_BDF2
-    // ierr = PCSetType(pc, PCNONE);
-    ierr = PCSetType(pc, PCJACOBI); // PCJACOBI: Jacobi, i.e. diagonal scaling preconditioning.
-    // ierr = PCSetType(pc, PCLU); // PCLU: this uses a direct solver, based on LU factorization, as a preconditioner.
-    std::cout << "set_ode_solver :: PCSetType "<< ierr << std::endl;
-#endif
 
     ierr = TSSetFromOptions(ts); // set various TS parameters from the options database
     std::cout << "set_ode_solver :: TSSetFromOptions "<< ierr << std::endl;
@@ -2793,6 +2845,25 @@ void Model0d::initialiseVariablesAndComputeConstants() {
 # void Model0d::solveOneStepExpl(double dtLoc)
 # {
 # """
+        # Rounding of times to the grid of tolTime: a coupled model uses the function shared with the coupler
+        # (and mirrored by the 1d solver), a fully 0d model (no coupler_mpi_common.h) the same formula.
+        if self.couple_to_1d:
+            solveOneStepFunction += """
+double Model0d::roundTime(double t) const
+{
+    // same rounding as the coupler and the 1d solver (tolTime is COUPLING_TOL_TIME)
+    return coupling_round_time(t);
+}
+"""
+        else:
+            solveOneStepFunction += """
+double Model0d::roundTime(double t) const
+{
+    // round to the grid of tolTime, as coupling_round_time() in coupler_mpi_common.h
+    const double invTolTime = std::round(1.0 / tolTime); // inverse of tolTime, as an integer
+    return std::round(t * invTolTime) / invTolTime;
+}
+"""
         solveOneStepFunction += """
 void Model0d::solveOneStep(double dtLoc)
 {
@@ -2817,6 +2888,9 @@ void Model0d::solveOneStep(double dtLoc)
 
     if (N1d0dTot>0){
         MPI_Recv(parent_data_dt.data(), DATA_LENGTH, MPI_DOUBLE, coupler_rank, TAG_DT_STEP, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        // continue from the agreed time and time step: the coupler has checked that the agreed time
+        // matches voi within tolTime, so this only removes round-off differences with the 1d solver
+        voi = parent_data_dt[0];
         dt = parent_data_dt[1];
     }
 """
@@ -2824,7 +2898,7 @@ void Model0d::solveOneStep(double dtLoc)
         if self.solver == 'CVODE':
             solveOneStepFunction += """
     voiEnd = voi + dt;
-    voiEnd = std::round(voiEnd / tolTime) * tolTime;
+    voiEnd = roundTime(voiEnd);
     time_dof_0d = 0;
 
     states = N_VGetArrayPointer_Serial(y);
@@ -2858,7 +2932,8 @@ void Model0d::solveOneStep(double dtLoc)
             if self.couple_to_1d:
                 solveOneStepFunction += """
     if (N1d0dTot>0){
-        zero_data_dt[1] = -999.; // signal to coupler that time step is done
+        zero_data_dt[0] = voi; // time reached at the end of the step, checked by the coupler
+        zero_data_dt[1] = COUPLING_END_OF_STEP; // signal to coupler that time step is done
         MPI_Send(zero_data_dt.data(), DATA_LENGTH, MPI_DOUBLE, coupler_rank, TAG_DT, MPI_COMM_WORLD);
         zero_data_dt[1] = dtLoc; // reset value
     }
@@ -2884,13 +2959,24 @@ void Model0d::solveOneStep(double dtLoc)
     // voiEnd = std::round(voiEnd / tolTime) * tolTime;
     time_dof_0d = 0;
 
+    PetscCallVoid(TSSetTime(ts, voi)); // start from voi (rounded, or the agreed time in a coupled run)
     PetscCallVoid(TSSetTimeStep(ts, dt)); // set time step
     PetscCallVoid(TSSetMaxTime(ts, voiEnd)); // set final time for the current one-step solve
-    PetscCallVoid(TSSolve(ts, y)); // steps the requested number of time steps
-    
+    // Take one time step of size dt: TSSolve stops when it reaches the final time set above.
+    // If the step fails, stop the program (as for CVODE). Returning instead would leave the time unchanged, and the
+    // time loop would then repeat the same failing step forever.
+    PetscErrorCode ierrSolve = TSSolve(ts, y);
+    TSConvergedReason tsReason;
+    TSGetConvergedReason(ts, &tsReason);
+    if (ierrSolve != PETSC_SUCCESS || tsReason < 0) {
+        std::cerr << "0d solver :: ERROR: PETSc TSSolve failed in the time step from " << voi << " to " << voiEnd
+                  << " (" << TSConvergedReasons[tsReason] << "). Exiting." << std::endl;
+        exit(1);
+    }
+
     PetscReal t;
     TSGetTime(ts, &t);
-    voi = t;
+    voi = roundTime(t); // rounded as in the other solvers, so that it cannot drift
 
     const PetscScalar *y_arr;
     VecGetArrayRead(y, &y_arr);
@@ -2903,7 +2989,8 @@ void Model0d::solveOneStep(double dtLoc)
             if self.couple_to_1d:
                 solveOneStepFunction += """
     if (N1d0dTot>0){
-        zero_data_dt[1] = -999.; // signal to coupler that time step is done
+        zero_data_dt[0] = voi; // time reached at the end of the step, checked by the coupler
+        zero_data_dt[1] = COUPLING_END_OF_STEP; // signal to coupler that time step is done
         MPI_Send(zero_data_dt.data(), DATA_LENGTH, MPI_DOUBLE, coupler_rank, TAG_DT, MPI_COMM_WORLD);
         zero_data_dt[1] = dtLoc; // reset value
     }
@@ -3031,13 +3118,14 @@ void Model0d::solveOneStep(double dtLoc)
     }
 
     voi += dt;
-    voi = std::round(voi / tolTime) * tolTime;
+    voi = roundTime(voi);
 """
 
             if self.couple_to_1d:
                 solveOneStepFunction += """
     if (N1d0dTot>0){
-        zero_data_dt[1] = -999.; // signal to coupler that time step is done
+        zero_data_dt[0] = voi; // time reached at the end of the step, checked by the coupler
+        zero_data_dt[1] = COUPLING_END_OF_STEP; // signal to coupler that time step is done
         MPI_Send(zero_data_dt.data(), DATA_LENGTH, MPI_DOUBLE, coupler_rank, TAG_DT, MPI_COMM_WORLD);
         zero_data_dt[1] = dtLoc; // reset value
     }
@@ -3289,6 +3377,44 @@ int func(double voi_, N_Vector y, N_Vector yDot, void *userData)
             
         elif self.solver == 'PETSC':
             funcCC = """
+// Convergence test of the Newton iterations of the implicit PETSc methods, as in CVODE: converged when the last
+// Newton update is small compared with the tolerances of the solution (TSSetTolerances), i.e. when its weighted RMS
+// norm, with weights 1/(reltol*|y_i| + abstol), is below 0.1. PETSc's default tests are kept too. They alone are not
+// enough: they compare the residual with its initial value, and in stiff models (e.g. terminals with a small inertance)
+// the initial guess of BDF can already be as good as round-off allows, so that the residual cannot decrease further
+// and the Newton iterations fail.
+PetscErrorCode SNESConvergedWRMS(SNES snes, PetscInt it, PetscReal xnorm, PetscReal snorm, PetscReal fnorm,
+                                 SNESConvergedReason *reason, void *ctx)
+{
+    PetscFunctionBeginUser;
+    // PETSc default tests
+    PetscCall(SNESConvergedDefault(snes, it, xnorm, snorm, fnorm, reason, NULL));
+    if (*reason != SNES_CONVERGED_ITERATING || it == 0) PetscFunctionReturn(PETSC_SUCCESS);
+
+    // New CVODE-style convergence test:
+    // accepts once the last Newton update is below 0.1 of the solution tolerances
+    TS ts = static_cast<TS>(ctx);
+    PetscReal abstol, reltol;
+    PetscCall(TSGetTolerances(ts, &abstol, NULL, &reltol, NULL));
+    Vec x, dx;
+    PetscCall(SNESGetSolution(snes, &x));
+    PetscCall(SNESGetSolutionUpdate(snes, &dx)); // last Newton update (full step: basic line search)
+    const PetscScalar *x_arr, *dx_arr;
+    PetscInt n;
+    PetscCall(VecGetLocalSize(x, &n));
+    PetscCall(VecGetArrayRead(x, &x_arr));
+    PetscCall(VecGetArrayRead(dx, &dx_arr));
+    PetscReal sum = 0.0;
+    for (PetscInt i = 0; i < n; ++i) {
+        const PetscReal w = reltol*PetscAbsScalar(x_arr[i]) + abstol;
+        sum += PetscRealPart((dx_arr[i]/w)*(dx_arr[i]/w));
+    }
+    PetscCall(VecRestoreArrayRead(x, &x_arr));
+    PetscCall(VecRestoreArrayRead(dx, &dx_arr));
+    if (n > 0 && PetscSqrtReal(sum/n) < 0.1) *reason = SNES_CONVERGED_USER;
+    PetscFunctionReturn(PETSC_SUCCESS);
+}
+
 // PETSc RHS callable function
 PetscErrorCode TSRHSfunc(TS ts, PetscReal t, Vec Y, Vec Ydot, void *ctx)
 {
