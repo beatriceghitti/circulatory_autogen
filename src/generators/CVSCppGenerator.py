@@ -43,46 +43,258 @@ ABS_TOL = 1e-9
 # A line of libCellML's C code that computes a variable: "    variables[k] = ...;" (not a comparison "==").
 VARIABLE_LINE_PATTERN = re.compile(r"^\s*variables\[\d+\]\s*=(?!=)")
 
+_VARIABLE_INDEX_PATTERN = re.compile(r"variables\[(\d+)\]")
 
-def check_variables_computation_order(ordered_lines, all_lines):
+def _split_variable_line(line2): # OK
     """
-    Check the lines of the generated computeNonExternalVariables(): each variable must be computed before it is used,
-    otherwise it would be used with its value from the previous evaluation of the model.
+    Index of the variable computed by a line "variables[k] = ...;"
+    and indices of the variables it uses.
+    """
+    lhs, rhs = line2.split("=", 1)
+    return (int(_VARIABLE_INDEX_PATTERN.search(lhs).group(1)),
+            {int(k) for k in _VARIABLE_INDEX_PATTERN.findall(rhs)})
+
+
+def libcellml_variable_lines(lines): # OK
+    """
+    The lines "variables[k] = ...;" in computeRates() and computeVariables() of libCellML, in their order.
+    """
+    def body(signature):
+        for iL, line2 in enumerate(lines):
+            if signature in line2:
+                iStart = next(i for i in range(iL+1, len(lines)) if lines[i].startswith("{"))
+                iEnd = next(i for i in range(iStart, len(lines)) if lines[i].startswith("}"))
+                return [l for l in lines[iStart+1:iEnd] if VARIABLE_LINE_PATTERN.search(l)]
+        return []
+    return body('computeRates(double '), body('computeVariables(double ')
+
+
+def check_variables_computation_order(ordered_lines, all_lines, external_handled=()): # OK
+    """
+    Check the lines of the variables computed at each evaluation of the rates (computeNonExternalVariables() and
+    computeCouplingDependentVariables()): each variable must be computed before it is used, otherwise it would be
+    used with its value from the previous evaluation of the model.
 
     ordered_lines: the lines "variables[k] = ...;" in the order in which they are written.
     all_lines: all the lines computing variables in libCellML's code, including the external variables.
+    external_handled: indices of the external variables whose use is handled: 
+        - the variables received from the 1d solver (the variables using them are computed after the exchange), and
+        - the 1d volumes (set at the end of each time step, before the variables are computed).
 
-    Raises an error if a variable is used before it is computed. Prints a warning if a variable uses an external
-    variable: external variables are set by getExternalVariables(), after computeNonExternalVariables(), so these
-    variables use the external value of the previous evaluation.
+    Raises an error if a variable is used before it is computed. Prints a warning if a variable uses another external
+    variable: it is set by getDelayVariables() or getExternalVariables(), after computeNonExternalVariables(), so these
+    variables use its value from the previous evaluation.
     """
-    index_pattern = re.compile(r"variables\[(\d+)\]")
-
-    def split(line2):
-        lhs, rhs = line2.split("=", 1)
-        return int(index_pattern.search(lhs).group(1)), {int(k) for k in index_pattern.findall(rhs)}
-
     computed_at = {}
     for i, line2 in enumerate(ordered_lines):
-        computed_at.setdefault(split(line2)[0], i)
-    external = {split(line2)[0] for line2 in all_lines if 'external' in line2}
+        computed_at.setdefault(_split_variable_line(line2)[0], i)
+    external = {_split_variable_line(line2)[0] for line2 in all_lines if 'external' in line2} - set(external_handled)
 
     used_before = []
     uses_external = []
     for i, line2 in enumerate(ordered_lines):
-        lhs, used = split(line2)
+        lhs, used = _split_variable_line(line2)
         for k in sorted(used):
             if k in computed_at and computed_at[k] >= i:
                 used_before.append(f"variables[{k}] in: {line2.strip()}")
-        if used & external:
+        if used & external: # take the intersection between the two sets
             uses_external.append(f"variables{sorted(used & external)} in: {line2.strip()}")
     if used_before:
         raise RuntimeError("generated computeNonExternalVariables(): variables used before they are computed "
                            "(they would take their value from the previous evaluation):\n  " + "\n  ".join(used_before))
     if uses_external:
         print("WARNING :: generated computeNonExternalVariables(): these variables use external variables, which are "
-              "set after them by getExternalVariables(), so they use the external value from the previous "
-              "evaluation:\n  " + "\n  ".join(uses_external))
+              "set after them by getDelayVariables() or getExternalVariables(), so they use the external value from "
+              "the previous evaluation:\n  " + "\n  ".join(uses_external))
+
+
+def split_variables_at_coupling_exchange(ordered_lines, received): # OK
+    """
+    Split the lines of the variables computed at each evaluation of the rates around the exchange with the 1d solver
+    (getExternalVariables(), which sends the values of the 1d-0d connections and then receives the 1d values).
+
+    ordered_lines: the lines "variables[k] = ...;", each variable after those it uses.
+    received: indices of the variables received from the 1d solver.
+
+    Returns (lines_before, lines_after, depends_on):
+    - lines_before: the lines of the variables that DO NOT depend on the received variables, computed before the
+      exchange (computeNonExternalVariables());
+    - lines_after: the lines of those that DO depend on the received variables, directly or through other variables, 
+      computed after it (computeCouplingDependentVariables()).
+      If computed before it, they would use the values of the previous exchange;
+    - depends_on: variable of lines_after -> the received variables it depends on.
+    Both lists keep the order of ordered_lines.
+    """
+    received = set(received)
+    depends_on = {}
+    lines_before = []
+    lines_after = []
+    for line2 in ordered_lines:
+        lhs, used = _split_variable_line(line2)
+        dependencies = used & received
+        for k in used:
+            dependencies |= depends_on.get(k, set())
+        if dependencies:
+            depends_on[lhs] = dependencies
+            lines_after.append(line2)
+        else:
+            lines_before.append(line2)
+    return lines_before, lines_after, depends_on
+
+
+def _c_expression_to_sympy(expression): # OK
+    """
+    sympy expression of the right-hand side of a line of libCellML's C code, with the symbols V_k, S_k and D_k for
+    variables[k], states[k] and rates[k]. Raises ValueError for the code sympy cannot read (e.g. conditional expressions).
+    """
+    import sympy as sp
+    from sympy.parsing.sympy_parser import parse_expr
+    if any(op in expression for op in ('?', '&&', '||', '==', '!=', '<', '>')):
+        raise ValueError("conditional expression")
+    text = re.sub(r"\b(variables|states|rates)\[(\d+)\]",
+                  lambda m: {'variables': 'V', 'states': 'S', 'rates': 'D'}[m.group(1)] + '_' + m.group(2),
+                  expression.strip().rstrip(';'))
+    functions = {'pow': sp.Pow, 'exp': sp.exp, 'log': sp.log, 'log10': lambda x: sp.log(x, 10), 'sqrt': sp.sqrt,
+                 'fabs': sp.Abs, 'sin': sp.sin, 'cos': sp.cos, 'tan': sp.tan, 'sinh': sp.sinh, 'cosh': sp.cosh,
+                 'tanh': sp.tanh, 'asin': sp.asin, 'acos': sp.acos, 'atan': sp.atan, 'floor': sp.floor,
+                 'ceil': sp.ceiling, 'min': sp.Min, 'max': sp.Max, 'fmin': sp.Min, 'fmax': sp.Max,
+                 'voi': sp.Symbol('voi')}
+    try:
+        return parse_expr(text, local_dict=functions)
+    except Exception as e:
+        raise ValueError(f"{type(e).__name__}: {e}")
+
+
+def analyse_coupling_connections(connections, lines_after, depends_on, variable_names):
+    """
+    Decide how each 1d-0d connection exchanges its values with the 1d solver, and write the C code that computes the
+    values it sends.
+
+    The 1d solver imposes at the boundary of the 1d vessel the relation pS = P0D + sign*R*q, between the pressure pS
+    and the flow q there, with the two values P0D and R sent by the 0d model, and sends back q (if the 0d module
+    receives the flow: flow bc) or pS (if it receives the pressure: pressure bc, with R = 0).
+    
+    For a connection whose sent variable s does not depend on its received variable r, s is sent as computed before
+    the exchange (computeNonExternalVariables()): P0D = s (pressure) and R = the resistance of the FV_resistance_port
+    of the module, if any, for a flow bc; s (flow) for a pressure bc.
+    
+    Otherwise s must be an affine function of r alone, s = s0 + c*r, with s0 and c not depending on any received
+    variable (checked symbolically with sympy on libCellML's lines). The lines of s are then evaluated twice before the
+    exchange, with r = 0 and r = 1, which gives s0 and c exactly, and the connection sends
+    - flow bc (r = q, s = pressure): P0D = s0 and R = R_FV_resistance_port + sign*c, so that
+      pS = s + sign*R_FV_resistance_port*q (pS = s without an FV_resistance_port), because
+      P0D + sign*R*q = s0 + sign*R_FV_resistance_port*q + sign*sign*c*q and sign*sign = 1;
+    - pressure bc (r = pS, s = q): P0D = -s0/c and R = sign/c, so that q = s; the 1d solver then treats the
+      connection as a flow bc (it sends back q) and the 0d model computes r = P0D + sign*R*q (converted connection).
+
+    connections: one dict per 1d-0d connection, in the order of the exchange, with the keys
+        where: description for the messages;
+        received: index of the received variable (in variables);
+        sent: index of the sent variable; sent_is_state: whether it is a state (index in states);
+        flow_bc: True if the module receives the flow and sends a pressure, False if it receives the pressure and
+            sends a flow;
+        sign: +1 if the 1d vessel is upstream of the 0d module (1d outlet), -1 if it is downstream (1d inlet);
+        resistance: index of the variable of the FV_resistance_port of the module (flow bc only), or None.
+    lines_after, depends_on: from split_variables_at_coupling_exchange().
+    variable_names: index in variables -> name, for the messages.
+
+    Returns (code, plans): the body of computeCouplingSentValues(), in libCellML's names (variables, states, ...),
+    which sets couplingSend[2*i] = P0D (or the flow) and couplingSend[2*i+1] = R for each connection i; and one dict
+    per connection with 'affine' (whether its sent value depends on its received value), 'converted' (pressure bc
+    exchanged as a flow bc) and 'description' (for the messages).
+    Raises an error for a configuration that cannot be coupled.
+    """
+    def name(k):
+        return variable_names.get(k, f"variables[{k}]")
+
+    code = ""
+    plans = []
+    errors = []
+    for i, conn in enumerate(connections):
+        received, sent, flow_bc, sign = conn['received'], conn['sent'], conn['flow_bc'], conn['sign']
+        resistance = conn['resistance'] if flow_bc else None
+        value, res = f"couplingSend[{2*i}]", f"couplingSend[{2*i+1}]"
+        sent_code = f"states[{sent}]" if conn['sent_is_state'] else f"variables[{sent}]"
+        sent_name = 'pressure' if flow_bc else 'flow'
+        resistance_code = f"variables[{resistance}]" if resistance is not None else "0.0"
+        if resistance is not None and resistance in depends_on:
+            errors.append(f"{conn['where']}: the resistance {name(resistance)} of the FV_resistance_port depends on "
+                          f"the received {', '.join(name(k) for k in sorted(depends_on[resistance]))}.")
+            continue
+        if conn['sent_is_state'] or sent not in depends_on:
+            code += f"    {value} = {sent_code};\n    {res} = {resistance_code};\n"
+            plans.append({'affine': False, 'converted': False, 'description': ''})
+            continue
+        others = depends_on[sent] - {received}
+        if others:
+            errors.append(f"{conn['where']}: the {sent_name} sent, {name(sent)}, depends on the values received by other "
+                          f"connections, {', '.join(name(k) for k in sorted(others))}: the 1d solver would have to "
+                          "solve these connections together, which it does not do.")
+            continue
+        # lines computing the sent variable from the received one, in their order
+        needed = {sent}
+        chain = []
+        for line2 in reversed(lines_after):
+            lhs, used = _split_variable_line(line2)
+            if lhs in needed:
+                chain.append(line2)
+                needed |= {k for k in used if k in depends_on}
+        chain.reverse()
+        try:
+            import sympy as sp
+            expressions = {}
+            for line2 in chain:
+                lhs = _split_variable_line(line2)[0]
+                expression = _c_expression_to_sympy(line2.split("=", 1)[1])
+                expression = expression.subs({sp.Symbol(f"V_{k}"): e for k, e in expressions.items()
+                                              if sp.Symbol(f"V_{k}") in expression.free_symbols})
+                expressions[lhs] = expression
+            r = sp.Symbol(f"V_{received}")
+            coefficient = sp.diff(expressions[sent], r)
+            if coefficient.has(r):
+                coefficient = sp.simplify(coefficient)
+        except ValueError as e:
+            errors.append(f"{conn['where']}: the {sent_name} sent, {name(sent)}, depends on the received {name(received)}, "
+                          f"and its lines could not be analysed ({e}):\n    " + "\n    ".join(l.strip() for l in chain))
+            continue
+        if coefficient.has(r):
+            errors.append(f"{conn['where']}: the {sent_name} sent, {name(sent)}, depends nonlinearly on the received "
+                          f"{name(received)}: the 1d solver can only impose a linear relation between pressure and flow.")
+            continue
+        readable = coefficient.subs({sp.Symbol(f"V_{k}"): sp.Symbol(n) for k, n in variable_names.items()
+                                     if sp.Symbol(f"V_{k}") in coefficient.free_symbols})
+        chain_code = "".join("    " + line2 + "\n" for line2 in chain)
+        code += "    {\n"
+        code += f"        double received = variables[{received}];\n"
+        code += f"        variables[{received}] = 0.0;\n" + chain_code
+        code += f"        double value0 = variables[{sent}];\n"
+        code += f"        variables[{received}] = 1.0;\n" + chain_code
+        code += f"        double coefficient = variables[{sent}]-value0;\n"
+        code += f"        variables[{received}] = received;\n"
+        # the received variable cancels out: the value sent does not depend on it (computed after the exchange anyway)
+        cancels = sp.simplify(coefficient) == 0
+        if flow_bc:
+            code += f"        {value} = value0;\n"
+            code += f"        {res} = {resistance_code}{'+' if sign > 0 else '-'}coefficient;\n"
+        elif cancels:
+            code += f"        {value} = value0;\n"
+            code += f"        {res} = 0.0;\n"
+        else:
+            code += f"        {value} = -value0/coefficient;\n"
+            code += f"        {res} = {'1.0' if sign > 0 else '-1.0'}/coefficient;\n"
+        code += "    }\n"
+        if flow_bc:
+            description = (f"the pressure sent, {name(sent)}, depends linearly on the received flow {name(received)} "
+                           f"(coefficient {readable}): sent as P0D = {name(sent)} at zero flow and "
+                           f"R = {'' if resistance is None else name(resistance) + ' + '}{'' if sign > 0 else '-'}coefficient")
+        else:
+            description = (f"the flow sent, {name(sent)}, depends linearly on the received pressure {name(received)} "
+                           f"(coefficient {readable}): exchanged as a flow bc, with P0D = -{name(sent)}(0)/coefficient "
+                           f"and R = {'' if sign > 0 else '-'}1/coefficient; {name(received)} = P0D {'+' if sign > 0 else '-'} R*q")
+        plans.append({'affine': True, 'converted': not flow_bc and not cancels, 'description': description})
+    if errors:
+        raise RuntimeError("1d-0d coupling: configurations that cannot be coupled:\n  " + "\n  ".join(errors))
+    return code, plans
 
 class CVS0DCppGenerator(object):
     '''
@@ -104,7 +316,7 @@ class CVS0DCppGenerator(object):
         Constructor
         '''
         if LIBCELLML_available == False:
-            print("Error: LibCellML is not available, cannot generate Cpp files.")
+            print("CVS0DCppGenerator __init__ :: ERROR: LibCellML is not available, cannot generate Cpp files.")
             exit()
             
         self.model = model
@@ -220,6 +432,125 @@ class CVS0DCppGenerator(object):
         '''
         raise NotImplementedError("Not implemented yet")
 
+    def __append_1d_coupling(self, vessel_tup, side, vessel_1d): # OK
+        '''
+        Find the variables of the 0d module vessel_tup that are exchanged with the 1d (FV) vessel vessel_1d, connected
+        to one of its vessel_ports in its entrance_ports (side 'entrance') or exit_ports (side 'exit'), and append them
+        to the lists of the 1d-0d connections.
+
+        Flow bc (the 0d module receives the flow from the 1d vessel): the module sends the pressure of the vessel_port,
+        and the resistance of its FV_resistance_port if it has one (a resistance applied by the 1d solver only).
+        Pressure bc (the module receives the pressure): the module sends the flow of the vessel_port, and no resistance.
+        In each list of ports, the k-th FV_resistance_port belongs to the k-th vessel_port.
+
+        Exits with an error for a configuration that cannot be coupled. How the variables sent depend on the variables
+        received is analysed later, in generate_cpp(), once libCellML has analysed the model
+        (see analyse_coupling_connections()).
+        '''
+        vessels_df = self.model.vessels_df
+        module = f"0d module {vessel_tup.name} (module_type {vessel_tup.module_type}, BC_type {vessel_tup.BC_type})"
+
+        def error(message):
+            print(f"__append_1d_coupling :: ERROR: coupling of the 1d vessel {vessel_1d} to the {side} of the {module}: {message}")
+            exit(1)
+
+        def vessel_type_of(name):
+            return vessels_df.loc[vessels_df["name"] == name, "vessel_type"].iloc[0]
+
+        def is_multi_port(port):
+            return port.get("multi_port") in (True, 'True')
+
+        ports = vessel_tup.entrance_ports if side == 'entrance' else vessel_tup.exit_ports
+        neighbours = list(vessel_tup.inp_vessels if side == 'entrance' else vessel_tup.out_vessels)
+        vessel_ports = [port for port in ports if port["port_type"] == "vessel_port"]
+        resistance_ports = [port for port in ports if port["port_type"] == "FV_resistance_port"]
+
+        # which vessel_port of the module is connected to the 1d vessel
+        if len(vessel_ports) == 0:
+            error(f"the module has no vessel_port in its {side}_ports.")
+        
+        if vessel_tup.name == 'heart':
+            # the vessel_port is found from the name of the 1d vessel
+            if side == 'exit':
+                def matches(port):
+                    return ((('aorta' in vessel_1d or 'aortic_root' in vessel_1d) and port["variables"][1] == 'u_root')
+                            or ('par' in vessel_1d and port["variables"][1] == 'u_par'))
+            else:
+                def matches(port):
+                    return (('ivc' in vessel_1d and port["variables"][0] == 'v_ivc')
+                            or ('svc' in vessel_1d and port["variables"][0] == 'v_svc')
+                            or ('pvn' in vessel_1d and port["variables"][0] == 'v_pvn'))
+            found = [k for k, port in enumerate(vessel_ports) if matches(port)]
+            if len(found) != 1:
+                error(f"{len(found)} vessel_ports of the heart match the name of the 1d vessel, instead of one "
+                      "(exit: 'aorta' or 'aortic_root' -> u_root, 'par' -> u_par; entrance: 'ivc', 'svc', 'pvn').")
+            k = found[0]
+        elif any(is_multi_port(port) for port in vessel_ports):
+            error("its vessel_port is a multi_port (junction module): coupling it to a 1d vessel is not supported.")
+        elif len(vessel_ports) == 1:
+            k = 0
+        elif side == 'exit':
+            # the CellML generator connects the k-th vessel of out_vessels to the k-th exit vessel_port (1d vessels
+            # included), unless one of them is a Min_/MinNout_ junction (then the exit vessel_ports are shared)
+            if any(vessel_type_of(name).startswith(("Min_", "MinNout_")) for name in neighbours):
+                error("the module has several exit vessel_ports and one of its out_vessels is a Min_/MinNout_ "
+                      "junction: which vessel_port is connected to the 1d vessel is not defined.")
+            k = neighbours.index(vessel_1d)
+        else:
+            # the CellML generator connects each 0d vessel of inp_vessels to the first free entrance vessel_port
+            # (1d vessels are not connected there): the 1d vessels get the remaining ones, in the order of inp_vessels
+            if any(vessel_type_of(name).startswith(("Nout_", "MinNout_")) for name in neighbours):
+                error("the module has several entrance vessel_ports and one of its inp_vessels is a Nout_/MinNout_ "
+                      "junction: which vessel_port is connected to the 1d vessel is not defined.")
+            inp_1d = [name for name in neighbours if vessel_type_of(name) == "FV1D_vessel"]
+            k = (len(neighbours) - len(inp_1d)) + inp_1d.index(vessel_1d)
+        
+        if k >= len(vessel_ports):
+            error(f"it would be connected to vessel_port {k+1}, but the module has only {len(vessel_ports)} vessel_ports "
+                  f"in its {side}_ports (check {'out' if side == 'exit' else 'inp'}_vessels in the vessel array).")
+
+        if len(resistance_ports) not in (0, len(vessel_ports)):
+            error(f"its {side}_ports have {len(resistance_ports)} FV_resistance_port(s) and {len(vessel_ports)} "
+                  "vessel_port(s): the k-th FV_resistance_port belongs to the k-th vessel_port, so there must be one for "
+                  "each vessel_port.")
+
+        component = self.cellml_model.component(vessel_tup.name)
+
+        def variable_id(name, port_type):
+            variable = component.variable(name)
+            if variable is None:
+                error(f"variable {name} of its {port_type} not found in component {vessel_tup.name} of the generated "
+                      "CellML (it must be listed as 'access' in variables_and_units of the module configuration).")
+            return variable.id()
+
+        vessel_port = vessel_ports[k]
+        bc = vessel_tup.BC_type[0] if side == 'entrance' else vessel_tup.BC_type[1]
+        if bc == 'v': # flow bc: the module receives the flow, sends a pressure and a resistance
+            flow_or_pressure_bc = "flow"
+            input_id = variable_id(vessel_port["variables"][0], "vessel_port")
+            output_id = variable_id(vessel_port["variables"][1], "vessel_port")
+            if resistance_ports:
+                control_id = variable_id(resistance_ports[k]["variables"][0], "FV_resistance_port")
+            else:
+                control_id = None
+        elif bc == 'p': # pressure bc: the module receives the pressure, sends the flow
+            flow_or_pressure_bc = "pressure"
+            input_id = variable_id(vessel_port["variables"][1], "vessel_port")
+            output_id = variable_id(vessel_port["variables"][0], "vessel_port")
+            control_id = None
+            if resistance_ports:
+                print(f"WARNING :: coupling of the 1d vessel {vessel_1d} to the {side} of the {module}: the module "
+                      "receives the pressure and sends its flow, so its FV_resistance_port is not used.")
+        else:
+            error(f"unknown BC type {vessel_tup.BC_type} for a connection to a 1d vessel (expected 'v' or 'p' "
+                  f"for the {side}).")
+
+        self.connection_vessel_inlet_or_outlet.append("inlet" if side == 'entrance' else "outlet")
+        self.connection_vessel_flow_or_pressure_bc.append(flow_or_pressure_bc)
+        self.port_input_variables.append(input_id)
+        self.port_output_variables.append(output_id)
+        self.control_variables.append(control_id)
+
     def annotate_cellml(self):
         print("annotating CellML files, before Cpp generation...")
         #XXX Bea: is this really necessary???
@@ -300,11 +631,12 @@ class CVS0DCppGenerator(object):
                             idx1 = -1
                             for i in range(len(self.conn_1d_0d_info)):
                                 conn1d0d = self.conn_1d_0d_info[str(i+1)]
-                                if conn1d0d["vess0d_idx"] == idx0:
+                                if (conn1d0d["vess0d_idx"] == idx0 and conn1d0d.get("vess1d_name", out_vessel) == out_vessel
+                                        and conn1d0d["cellml_bc_in0_or_out1"] == 1): # this 0d module, this 1d vessel, this side
                                     idx1 = conn1d0d["vess1d_idx"]
                                     break
                             if idx1==-1:
-                                print(f"ERROR: idx of 1D FV vessel {out_vessel} connected to 0D module {vessel_tup.name} not found.")
+                                print(f"annotate_cellml :: ERROR: idx of 1D FV vessel {out_vessel} connected to 0D module {vessel_tup.name} not found.")
                                 exit()
                             fv1d_vessel_index = str(idx1)
                             fv1d_vessel_index_list.append([out_vessel, fv1d_vessel_index])
@@ -313,7 +645,7 @@ class CVS0DCppGenerator(object):
                         elif len(fv1d_vessel_index)==1:
                             fv1d_vessel_index = fv1d_vessel_index[0]
                             if len(fv1d_vessel_index) != 1:
-                                print("ERROR: FV1D vessel idx is not written correctly",
+                                print(f"annotate_cellml :: ERROR: FV1D vessel idx is not written correctly",
                                     "should be of format FV1D_#, or FV1D_##, etc",
                                     out_vessel, fv1d_vessel_index)
                                 exit()
@@ -322,14 +654,15 @@ class CVS0DCppGenerator(object):
                             idx1 = -1
                             for i in range(len(self.conn_1d_0d_info)):
                                 conn1d0d = self.conn_1d_0d_info[str(i+1)]
-                                if conn1d0d["vess0d_idx"] == idx0:
+                                if (conn1d0d["vess0d_idx"] == idx0 and conn1d0d.get("vess1d_name", out_vessel) == out_vessel
+                                        and conn1d0d["cellml_bc_in0_or_out1"] == 1): # this 0d module, this 1d vessel, this side
                                     idx1 = conn1d0d["vess1d_idx"]
                                     break
                             if idx1==-1:
-                                print(f"ERROR: idx of 1D FV vessel {out_vessel} connected to 0D module {vessel_tup.name} not found.")
+                                print(f"annotate_cellml :: ERROR: idx of 1D FV vessel {out_vessel} connected to 0D module {vessel_tup.name} not found.")
                                 exit()
                             if fv1d_vessel_index != str(idx1):
-                                print(f"ERROR: different idx of 1D FV vessel {out_vessel} found: {fv1d_vessel_index} {str(idx1)}")
+                                print(f"annotate_cellml :: ERROR: different idx of 1D FV vessel {out_vessel} found: {fv1d_vessel_index} {str(idx1)}")
                                 exit()
                             
                             fv1d_vessel_index_list.append([out_vessel, fv1d_vessel_index])
@@ -337,97 +670,7 @@ class CVS0DCppGenerator(object):
 
                         self.connection_vessel_indices.append(fv1d_vessel_index)
                         self.connection_vessel_types.append("FV_1d") # TODO only option for now, can be extended to other kinds of coupling.
-                        if vessel_tup.name == 'heart':
-                            FV_resistance_port = -1
-                            for exit_port in vessel_tup.exit_ports:
-                                if exit_port["port_type"] == "vessel_port":
-
-                                    if (('aorta' in out_vessel or 'aortic_root' in out_vessel) and exit_port["variables"][1] == 'u_root'):
-                                        self.connection_vessel_inlet_or_outlet.append("outlet")
-                                        if vessel_tup.BC_type[1] == 'v':
-                                            self.connection_vessel_flow_or_pressure_bc.append("flow") 
-                                            self.port_input_variables.append(self.cellml_model.component(vessel_tup.name \
-                                                                            ).variable(exit_port["variables"][0]).id())
-                                            self.port_output_variables.append(self.cellml_model.component(vessel_tup.name \
-                                                                            ).variable(exit_port["variables"][1]).id())
-                                        elif vessel_tup.BC_type[1] == 'p':
-                                            self.connection_vessel_flow_or_pressure_bc.append("pressure") 
-                                            self.port_input_variables.append(self.cellml_model.component(vessel_tup.name \
-                                                                            ).variable(exit_port["variables"][1]).id())
-                                            self.port_output_variables.append(self.cellml_model.component(vessel_tup.name \
-                                                                            ).variable(exit_port["variables"][0]).id())
-                                        else:
-                                            print(f"unknown BC type of {vessel_tup.BC_type} connecting to a "
-                                                "1D FV model")
-                                            
-                                    elif ('par' in out_vessel and exit_port["variables"][1] == 'u_par'):
-                                        self.connection_vessel_inlet_or_outlet.append("outlet")
-                                        if vessel_tup.BC_type[1] == 'v':
-                                            self.connection_vessel_flow_or_pressure_bc.append("flow") 
-                                            self.port_input_variables.append(self.cellml_model.component(vessel_tup.name \
-                                                                            ).variable(exit_port["variables"][0]).id())
-                                            self.port_output_variables.append(self.cellml_model.component(vessel_tup.name \
-                                                                            ).variable(exit_port["variables"][1]).id())
-                                        elif vessel_tup.BC_type[1] == 'p':
-                                            self.connection_vessel_flow_or_pressure_bc.append("pressure") 
-                                            self.port_input_variables.append(self.cellml_model.component(vessel_tup.name \
-                                                                            ).variable(exit_port["variables"][1]).id())
-                                            self.port_output_variables.append(self.cellml_model.component(vessel_tup.name \
-                                                                            ).variable(exit_port["variables"][0]).id())
-                                        else:
-                                            print(f"unknown BC type of {vessel_tup.BC_type} connecting to a "
-                                                "1D FV model")
-                                
-                                elif exit_port["port_type"] == "FV_resistance_port":
-                                    FV_resistance_port = 1
-                                    self.control_variables.append(self.cellml_model.component(vessel_tup.name \
-                                                                        ).variable(exit_port["variables"][0]).id())
-                                # TODO other port types will be added here! 
-                                else:
-                                    # if this port_type isn't one of the above, it wont be connected to the FV1D model
-                                    pass
-                                    # print(f"unknown port type of {exit_port["port_type"]} connecting to a "
-                                    #       "1D FV model")
-                                    # exit()
-
-                            if FV_resistance_port == -1:
-                                self.control_variables.append( None )
-
-                        else:
-                            FV_resistance_port = -1
-                            for exit_port in vessel_tup.exit_ports:
-                                if exit_port["port_type"] == "vessel_port":
-                                    self.connection_vessel_inlet_or_outlet.append("outlet")
-                                    if vessel_tup.BC_type[1] == 'v':
-                                        self.connection_vessel_flow_or_pressure_bc.append("flow") 
-                                        self.port_input_variables.append(self.cellml_model.component(vessel_tup.name \
-                                                                        ).variable(exit_port["variables"][0]).id())
-                                        self.port_output_variables.append(self.cellml_model.component(vessel_tup.name \
-                                                                        ).variable(exit_port["variables"][1]).id())
-                                    elif vessel_tup.BC_type[1] == 'p':
-                                        self.connection_vessel_flow_or_pressure_bc.append("pressure") 
-                                        self.port_input_variables.append(self.cellml_model.component(vessel_tup.name \
-                                                                        ).variable(exit_port["variables"][1]).id())
-                                        self.port_output_variables.append(self.cellml_model.component(vessel_tup.name \
-                                                                        ).variable(exit_port["variables"][0]).id())
-                                    else:
-                                        print(f"unknown BC type of {vessel_tup.BC_type} connecting to a "
-                                            "1D FV model")
-                                
-                                elif exit_port["port_type"] == "FV_resistance_port":
-                                    FV_resistance_port = 1
-                                    self.control_variables.append(self.cellml_model.component(vessel_tup.name \
-                                                                        ).variable(exit_port["variables"][0]).id())
-                                # TODO other port types will be added here! 
-                                else:
-                                    # if this port_type isn't one of the above, it wont be connected to the FV1D model
-                                    pass
-                                    # print(f"unknown port type of {exit_port["port_type"]} connecting to a "
-                                    #       "1D FV model")
-                                    # exit()
-
-                            if FV_resistance_port == -1:
-                                self.control_variables.append( None )
+                        self.__append_1d_coupling(vessel_tup, 'exit', out_vessel) #XXX
                 
                 for inp_vessel in vessel_tup.inp_vessels:
                     inp_vessel_row = self.model.vessels_df.loc[self.model.vessels_df["name"] == inp_vessel].squeeze()
@@ -444,11 +687,12 @@ class CVS0DCppGenerator(object):
                             idx1 = -1
                             for i in range(len(self.conn_1d_0d_info)):
                                 conn1d0d = self.conn_1d_0d_info[str(i+1)]
-                                if conn1d0d["vess0d_idx"] == idx0:
+                                if (conn1d0d["vess0d_idx"] == idx0 and conn1d0d.get("vess1d_name", inp_vessel) == inp_vessel
+                                        and conn1d0d["cellml_bc_in0_or_out1"] == 0): # this 0d module, this 1d vessel, this side
                                     idx1 = conn1d0d["vess1d_idx"]
                                     break
                             if idx1==-1:
-                                print(f"ERROR: idx of 1D FV vessel {inp_vessel} connected to 0D module {vessel_tup.name} not found.")
+                                print(f"annotate_cellml :: ERROR: idx of 1D FV vessel {inp_vessel} connected to 0D module {vessel_tup.name} not found.")
                                 exit()
                             fv1d_vessel_index = str(idx1)
                             fv1d_vessel_index_list.append([inp_vessel, fv1d_vessel_index])
@@ -457,7 +701,7 @@ class CVS0DCppGenerator(object):
                         elif len(fv1d_vessel_index)==1:
                             fv1d_vessel_index = fv1d_vessel_index[0]
                             if len(fv1d_vessel_index) != 1:
-                                print("ERROR: FV1D vessel idx is not written correctly",
+                                print(f"annotate_cellml :: ERROR: FV1D vessel idx is not written correctly",
                                     "should be of format FV1D_#, or FV1D_##, etc",
                                     inp_vessel, fv1d_vessel_index)
                                 exit()
@@ -466,137 +710,28 @@ class CVS0DCppGenerator(object):
                             idx1 = -1
                             for i in range(len(self.conn_1d_0d_info)):
                                 conn1d0d = self.conn_1d_0d_info[str(i+1)]
-                                if conn1d0d["vess0d_idx"] == idx0:
+                                if (conn1d0d["vess0d_idx"] == idx0 and conn1d0d.get("vess1d_name", inp_vessel) == inp_vessel
+                                        and conn1d0d["cellml_bc_in0_or_out1"] == 0): # this 0d module, this 1d vessel, this side
                                     idx1 = conn1d0d["vess1d_idx"]
                                     break
                             if idx1==-1:
-                                print(f"ERROR: idx of 1D FV vessel {inp_vessel} connected to 0D module {vessel_tup.name} not found.")
+                                print(f"annotate_cellml :: ERROR: idx of 1D FV vessel {inp_vessel} connected to 0D module {vessel_tup.name} not found.")
                                 exit()
                             if fv1d_vessel_index != str(idx1):
-                                print(f"ERROR: different idx of 1D FV vessel {inp_vessel} found: {fv1d_vessel_index} {str(idx1)}")
+                                print(f"annotate_cellml :: ERROR: different idx of 1D FV vessel {inp_vessel} found: {fv1d_vessel_index} {str(idx1)}")
                                 exit()
 
                             fv1d_vessel_index_list.append([inp_vessel, fv1d_vessel_index])
                         
                         self.connection_vessel_indices.append(fv1d_vessel_index)
                         self.connection_vessel_types.append("FV_1d") # TODO only option for now, can be extended to other kinds of coupling.
-                        if vessel_tup.name == 'heart':
-                            FV_resistance_port = -1
-                            for entrance_port in vessel_tup.entrance_ports:
-                                if entrance_port["port_type"] == "vessel_port":
-                                    
-                                    if ('ivc' in inp_vessel and entrance_port["variables"][0] == 'v_ivc'):
-                                        self.connection_vessel_inlet_or_outlet.append("inlet") 
-                                        if vessel_tup.BC_type[0] == 'v':
-                                            self.connection_vessel_flow_or_pressure_bc.append("flow") 
-                                            self.port_input_variables.append(self.cellml_model.component(vessel_tup.name \
-                                                                            ).variable(entrance_port["variables"][0]).id())
-                                            self.port_output_variables.append(self.cellml_model.component(vessel_tup.name \
-                                                                            ).variable(entrance_port["variables"][1]).id())
-                                            # TODO include a variable for the pressure or flow input
-                                        elif vessel_tup.BC_type[0] == 'p':  
-                                            self.connection_vessel_flow_or_pressure_bc.append("pressure") 
-                                            self.port_input_variables.append(self.cellml_model.component(vessel_tup.name \
-                                                                            ).variable(entrance_port["variables"][1]).id())
-                                            self.port_output_variables.append(self.cellml_model.component(vessel_tup.name \
-                                                                            ).variable(entrance_port["variables"][0]).id())
-                                        else:
-                                            print(f"unknown BC type of {vessel_tup.BC_type} connecting to a "
-                                                "1D FV model")
-                                            exit()
+                        self.__append_1d_coupling(vessel_tup, 'entrance', inp_vessel) #XXX
 
-                                    elif ('svc' in inp_vessel and entrance_port["variables"][0] == 'v_svc'):
-                                        self.connection_vessel_inlet_or_outlet.append("inlet") 
-                                        if vessel_tup.BC_type[0] == 'v':
-                                            self.connection_vessel_flow_or_pressure_bc.append("flow") 
-                                            self.port_input_variables.append(self.cellml_model.component(vessel_tup.name \
-                                                                            ).variable(entrance_port["variables"][0]).id())
-                                            self.port_output_variables.append(self.cellml_model.component(vessel_tup.name \
-                                                                            ).variable(entrance_port["variables"][1]).id())
-                                            # TODO include a variable for the pressure or flow input
-                                        elif vessel_tup.BC_type[0] == 'p':  
-                                            self.connection_vessel_flow_or_pressure_bc.append("pressure") 
-                                            self.port_input_variables.append(self.cellml_model.component(vessel_tup.name \
-                                                                            ).variable(entrance_port["variables"][1]).id())
-                                            self.port_output_variables.append(self.cellml_model.component(vessel_tup.name \
-                                                                            ).variable(entrance_port["variables"][0]).id())
-                                        else:
-                                            print(f"unknown BC type of {vessel_tup.BC_type} connecting to a "
-                                                "1D FV model")
-                                            exit()
-
-                                    elif ('pvn' in inp_vessel and entrance_port["variables"][0] == 'v_pvn'):
-                                        self.connection_vessel_inlet_or_outlet.append("inlet") 
-                                        if vessel_tup.BC_type[0] == 'v':
-                                            self.connection_vessel_flow_or_pressure_bc.append("flow") 
-                                            self.port_input_variables.append(self.cellml_model.component(vessel_tup.name \
-                                                                            ).variable(entrance_port["variables"][0]).id())
-                                            self.port_output_variables.append(self.cellml_model.component(vessel_tup.name \
-                                                                            ).variable(entrance_port["variables"][1]).id())
-                                            # TODO include a variable for the pressure or flow input
-                                        elif vessel_tup.BC_type[0] == 'p':  
-                                            self.connection_vessel_flow_or_pressure_bc.append("pressure") 
-                                            self.port_input_variables.append(self.cellml_model.component(vessel_tup.name \
-                                                                            ).variable(entrance_port["variables"][1]).id())
-                                            self.port_output_variables.append(self.cellml_model.component(vessel_tup.name \
-                                                                            ).variable(entrance_port["variables"][0]).id())
-                                        else:
-                                            print(f"unknown BC type of {vessel_tup.BC_type} connecting to a "
-                                                "1D FV model")
-                                            exit()
-                                
-                                elif entrance_port["port_type"] == "FV_resistance_port":
-                                    FV_resistance_port = 1
-                                    self.control_variables.append(self.cellml_model.component(vessel_tup.name \
-                                                                        ).variable(entrance_port["variables"][0]).id())
-                                # TODO other port types will be added here! 
-                                else:
-                                    # if this port_type isn't one of the above, it wont be connected to the FV1D model
-                                    pass
-                                    # print(f"unknown port type of {entrance_port["port_type"]} connecting to a "
-                                    #       "1D FV model")
-                                    # exit()
-
-                            if FV_resistance_port == -1:
-                                self.control_variables.append( None )
-
-                        else:
-                            FV_resistance_port = -1
-                            for entrance_port in vessel_tup.entrance_ports:
-                                if entrance_port["port_type"] == "vessel_port":
-                                    self.connection_vessel_inlet_or_outlet.append("inlet") 
-                                    if vessel_tup.BC_type[0] == 'v':
-                                        self.connection_vessel_flow_or_pressure_bc.append("flow") 
-                                        self.port_input_variables.append(self.cellml_model.component(vessel_tup.name \
-                                                                        ).variable(entrance_port["variables"][0]).id())
-                                        self.port_output_variables.append(self.cellml_model.component(vessel_tup.name \
-                                                                        ).variable(entrance_port["variables"][1]).id())
-                                        # TODO include a variable for the pressure or flow input
-                                    elif vessel_tup.BC_type[0] == 'p':  
-                                        self.connection_vessel_flow_or_pressure_bc.append("pressure") 
-                                        self.port_input_variables.append(self.cellml_model.component(vessel_tup.name \
-                                                                        ).variable(entrance_port["variables"][1]).id())
-                                        self.port_output_variables.append(self.cellml_model.component(vessel_tup.name \
-                                                                        ).variable(entrance_port["variables"][0]).id())
-                                    else:
-                                        print(f"unknown BC type of {vessel_tup.BC_type} connecting to a "
-                                            "1D FV model")
-                                        exit()
-
-                                elif entrance_port["port_type"] == "FV_resistance_port":
-                                    FV_resistance_port = 1
-                                    self.control_variables.append(self.cellml_model.component(vessel_tup.name \
-                                                                        ).variable(entrance_port["variables"][0]).id())
-                                # TODO other port types will be added here! 
-                                else:
-                                    # if this port_type isn't one of the above, it wont be connected to the FV1D model
-                                    pass
-                                    # print(f"unknown port type of {entrance_port["port_type"]} connecting to a "
-                                    #       "1D FV model")
-                                    # exit()
-
-                            if FV_resistance_port == -1:
-                                self.control_variables.append( None )
+        # each 1d-0d connection needs its own received variable (the annotations are attached to it)
+        duplicated = {v for v in self.port_input_variables if self.port_input_variables.count(v) > 1}
+        if duplicated:
+            print(f"annotate_cellml :: ERROR: the same 0d variable would receive the values of several 1d-0d connections: {duplicated}")
+            exit(1)
 
         # print(fv1d_vessel_index_list)
         print('1d-0d coupled variables :: DONE')
@@ -615,7 +750,7 @@ class CVS0DCppGenerator(object):
                             idx_sum = idx0
                             break
                 if idx_sum==-1:
-                    print(f"ERROR: idx of 1D FV volume sum connection not found.")
+                    print(f"annotate_cellml :: ERROR: idx of 1D FV volume sum connection not found.")
                     exit()
                 self.volume_sum_indeces.append(str(idx_sum))
 
@@ -806,15 +941,15 @@ class CVS0DCppGenerator(object):
         for vtd, dv, d_amount in variables_to_delay_info:
             vtd_url = urlparse(vtd)
             if vtd_url.path != self.generated_wID_model_file_path:
-                print("found an unexpected model file for variable to delay?!")
+                print("generate_cpp :: ERROR: found an unexpected model file for variable to delay?!")
                 exit()
             dv_url = urlparse(dv)
             if dv_url.path != self.generated_wID_model_file_path:
-                print("found an unexpected model file for delay variable?!")
+                print("generate_cpp :: ERROR: found an unexpected model file for delay variable?!")
                 exit()
             d_amount_url = urlparse(d_amount)
             if d_amount_url.path != self.generated_wID_model_file_path:
-                print("found an unexpected model file for delay amount?!")
+                print("generate_cpp :: ERROR: found an unexpected model file for delay amount?!")
                 exit()
             delayed_ids.append([vtd_url.fragment, dv_url.fragment, d_amount_url.fragment])
             
@@ -840,21 +975,21 @@ class CVS0DCppGenerator(object):
             
             port_input_var_url = urlparse(port_input_var)
             if port_input_var_url.path != self.generated_wID_model_file_path:
-                print("found an unexpected model file for readout variable?!")
+                print("generate_cpp :: ERROR: found an unexpected model file for readout variable?!")
                 exit()
             port_output_var_url = urlparse(port_output_var)
             if port_output_var_url.path != self.generated_wID_model_file_path:
-                print("found an unexpected model file for readout variable?!")
+                print("generate_cpp :: ERROR: found an unexpected model file for readout variable?!")
                 exit()
             if external_var is not None:
                 external_var_url = urlparse(external_var)
                 if external_var_url.path != self.cpp_generated_models_dir:
-                    print("found an unexpected model file for readout variable?!")
+                    print("generate_cpp :: ERROR: found an unexpected model file for readout variable?!")
                     exit()
                 if control_var is not None:
                     control_var_url = urlparse(control_var)
                     if control_var_url.path != self.generated_wID_model_file_path:
-                        print("found an unexpected model file for readout variable?!")
+                        print("generate_cpp :: ERROR: found an unexpected model file for readout variable?!")
                         exit()
                     port_input_variable_ids.append([port_input_var_url.fragment, port_output_var_url.fragment, 
                                                     external_var_url.fragment, control_var_url.fragment])
@@ -869,7 +1004,7 @@ class CVS0DCppGenerator(object):
         for input_var in input_variable_info:
             input_var_url = urlparse(input_var)
             if input_var_url.path != self.generated_wID_model_file_path:
-                print("found an unexpected model file for readout variable?!")
+                print("generate_cpp :: ERROR: found an unexpected model file for readout variable?!")
                 exit()
             input_variable_ids.append(input_var_url.fragment)
 
@@ -877,7 +1012,7 @@ class CVS0DCppGenerator(object):
         for output_var in output_variable_info:
             output_var_url = urlparse(output_var)
             if output_var_url.path != self.generated_wID_model_file_path:
-                print("found an unexpected model file for readout variable?!")
+                print("generate_cpp :: ERROR: found an unexpected model file for readout variable?!")
                 exit()
             output_variable_ids.append(output_var_url.fragment)
 
@@ -886,7 +1021,7 @@ class CVS0DCppGenerator(object):
             volume_sum_var_url = urlparse(volume_sum_var)
             # if volume_sum_var_url.path != self.generated_wID_model_file_path:
             if volume_sum_var_url.path != self.cpp_generated_models_dir:
-                print("found an unexpected model file for readout variable?!")
+                print("generate_cpp :: ERROR: found an unexpected model file for readout variable?!")
                 exit()
             vv = volume_sum_var_url.fragment
             v = vv.split("#")
@@ -923,15 +1058,15 @@ class CVS0DCppGenerator(object):
             # get the variable (will fail if id doesn't correspond to a variable in the model)
             vtd = annotator.variable(vtd_id)
             if vtd == None:
-                print('Unable to find a variable to delay with the id {} in the given model...'.format(vtd_id))
+                print('generate_cpp :: ERROR: Unable to find a variable to delay with the id {} in the given model...'.format(vtd_id))
                 exit()
             dv = annotator.variable(dv_id)
             if dv == None:
-                print('Unable to find a delay variable with the id {} in the given model...'.format(dv_id))
+                print('generate_cpp :: ERROR: Unable to find a delay variable with the id {} in the given model...'.format(dv_id))
                 exit()
             d_amount = annotator.variable(d_amount_id)
             if d_amount == None:
-                print('Unable to find a delay variable with the id {} in the given model...'.format(dv_id))
+                print('generate_cpp :: ERROR: Unable to find a delay variable with the id {} in the given model...'.format(dv_id))
                 exit()
             annotated_variables.append([[vtd, dv, d_amount], self.delay_variable_uri])
             print("DELAY annotated variable:", annotated_variables[-1])
@@ -953,16 +1088,16 @@ class CVS0DCppGenerator(object):
                 port_input_var_id, port_output_var_id, external_var_id, control_var_id = entry
                 control_var = annotator.variable(control_var_id)
                 if control_var == None:
-                    print('Unable to find a readout variable with the id {} in the given model...'.format(control_var_id))
+                    print('generate_cpp :: ERROR: Unable to find a readout variable with the id {} in the given model...'.format(control_var_id))
                     exit()
             # get the variable (will fail if id doesn't correspond to a variable in the model)
             port_input_var = annotator.variable(port_input_var_id)
             if port_input_var == None:
-                print('Unable to find a readout variable with the id {} in the given model...'.format(port_input_var_id))
+                print('generate_cpp :: ERROR: Unable to find a readout variable with the id {} in the given model...'.format(port_input_var_id))
                 exit()
             port_output_var = annotator.variable(port_output_var_id)
             if port_output_var == None:
-                print('Unable to find a readout variable with the id {} in the given model...'.format(port_output_var_id))
+                print('generate_cpp :: ERROR: Unable to find a readout variable with the id {} in the given model...'.format(port_output_var_id))
                 exit()
             # TODO some check to see that the external variable is actually a variable within the cpp model??
             if len(entry) == 2:
@@ -977,7 +1112,7 @@ class CVS0DCppGenerator(object):
             # get the variable (will fail if id doesn't correspond to a variable in the model)
             input_var = annotator.variable(input_var_id)
             if input_var == None:
-                print('Unable to find a readout variable with the id {} in the given model...'.format(input_var_id))
+                print('generate_cpp :: ERROR: Unable to find a readout variable with the id {} in the given model...'.format(input_var_id))
                 exit()
             annotated_variables.append([[input_var], self.input_variable_uri])
             print("INPUT annotated variable:", annotated_variables[-1])
@@ -986,7 +1121,7 @@ class CVS0DCppGenerator(object):
             # get the variable (will fail if id doesn't correspond to a variable in the model)
             output_var = annotator.variable(output_var_id)
             if output_var == None:
-                print('Unable to find a readout variable with the id {} in the given model...'.format(output_var_id))
+                print('generate_cpp :: ERROR: Unable to find a readout variable with the id {} in the given model...'.format(output_var_id))
                 exit()
             annotated_variables.append([[output_var], self.output_variable_uri])
             print("OUTPUT annotated variable:", annotated_variables[-1])
@@ -995,7 +1130,7 @@ class CVS0DCppGenerator(object):
             # get the variable (will fail if id doesn't correspond to a variable in the model)
             volume_sum_var = annotator.variable(volume_sum_var_id[0])
             if volume_sum_var == None:
-                print('Unable to find a readout variable with the id {} in the given model...'.format(volume_sum_var_id))
+                print('generate_cpp :: ERROR: Unable to find a readout variable with the id {} in the given model...'.format(volume_sum_var_id))
                 exit()
             annotated_variables.append([[volume_sum_var, volume_sum_var_id[1]], self.volume_sum_variable_uri])
             print("VOLUME SUM annotated variable:", annotated_variables[-1])
@@ -1183,10 +1318,10 @@ class CVS0DCppGenerator(object):
         print(f"analysed model has type {analysed_model.type()} . Is it ODE type? {analysed_model.type()==AnalyserModel.Type.ODE}")
         # print(f"analysed model has type {analysed_model.type()} . Is it DAE type? {analysed_model.type()==AnalyserModel.Type.DAE}")
         if analysed_model.type() != AnalyserModel.Type.ODE:
-            print("model is not a valid ODE model, aborting...")
+            print("generate_cpp :: ERROR: model is not a valid ODE model, aborting...")
             exit()
         # if not analysed_model.isValid():
-        #     print("model is not valid, aborting...")
+        #     print("generate_cpp :: ERROR: model is not valid, aborting...")
         #     exit()
 
         # get the information for the variables to delay
@@ -1210,7 +1345,7 @@ class CVS0DCppGenerator(object):
                                     idx1d0d = j+1
                                     break
                         if idx1d0d<0:
-                            print(f"ERROR: 1d-0d connection not found in self.conn_1d_0d_info for volume_sum variable coupled to FV_1d type.")
+                            print(f"generate_cpp :: ERROR: 1d-0d connection not found in self.conn_1d_0d_info for volume_sum variable coupled to FV_1d type.")
                             exit()
                     else:
                         epv = ext_variable['port_variable']
@@ -1220,7 +1355,7 @@ class CVS0DCppGenerator(object):
                                 idx1d0d = j+1
                                 break
                         if idx1d0d<0:
-                            print(f"ERROR: 1d-0d vessel connection not found in self.conn_1d_0d_info for ext_variable_idx {idxev} coupled to FV_1d type.")
+                            print(f"generate_cpp :: ERROR: 1d-0d vessel connection not found in self.conn_1d_0d_info for ext_variable_idx {idxev} coupled to FV_1d type.")
                             exit()
 
             # print("idx0d1d:", idx1d0d)
@@ -1285,20 +1420,49 @@ class CVS0DCppGenerator(object):
                         print(state.name(), epv.name(), " || port state index", ext_variable['port_state_index'])
             print("****")
 
+        # Variables exchanged with the 1d solver, used to split the computation of the variables around the exchange
+        # (see split_variables_at_coupling_exchange() and analyse_coupling_connections()):
+        # - coupling_received: received from the 1d solver at each evaluation of the rates (getExternalVariables());
+        # - coupling_volume_sum: 1d volumes, received only at the end of each time step (getExternalVariablesVolume());
+        # - coupling_connections: the one-to-one 1d-0d connections, in the order of the exchange.
+        coupling_received = set()
+        coupling_volume_sum = set()
+        coupling_connections = []
+        variable_names = {}
+        for av in analysed_model.variables():
+            try:
+                variable_names[av.index()] = f"{av.variable().parent().name()}/{av.variable().name()}"
+            except Exception:
+                variable_names[av.index()] = av.variable().name()
+        if self.couple_to_1d and self.conn_1d_0d_info is not None:
+            for ext_variable in external_variable_info:
+                if ext_variable.get('control_variable') is not None and ext_variable.get('control_variable_index') is None:
+                    raise RuntimeError(f"1d-0d coupling: the resistance {ext_variable['control_variable'].name()} sent "
+                                       f"with the coupling variable {ext_variable['variable'].name()} is not an algebraic "
+                                       "variable or a constant of the analysed model (a state cannot be sent as resistance).")
+            for i in range(len(self.conn_1d_0d_info)):
+                key = str(i+1)
+                conn = self.conn_1d_0d_info[key]
+                if conn.get("port_volume_sum", 0) == 1:
+                    if conn["cellml_idx"] >= 0:
+                        coupling_volume_sum.add(conn["cellml_idx"])
+                    continue
+                if len(coupling_connections) != i:
+                    raise RuntimeError("1d-0d coupling: the one-to-one connections must come before the volume sum "
+                                       "connections in the connection information (as written by ModelParsers).")
+                where = (f"1d-0d connection {key} (1d vessel {conn.get('vess1d_name', conn['vess1d_idx'])}, "
+                         f"{'inlet' if conn['cellml_bc_in0_or_out1'] == 0 else 'outlet'} of the 0d module)")
+                if conn["cellml_idx"] < 0 or conn["port_idx"] < 0:
+                    raise RuntimeError(f"{where}: received variable (index {conn['cellml_idx']}) or sent variable "
+                                       f"(index {conn['port_idx']}) not found in the analysed model.")
+                coupling_received.add(conn["cellml_idx"])
+                coupling_connections.append({
+                    'key': key, 'where': where, 'received': conn["cellml_idx"], 'sent': conn["port_idx"],
+                    'sent_is_state': conn["port_state0_or_var1"] == 0,
+                    'flow_bc': conn["cellml_bc_flow0_or_press1"] == 0,
+                    'sign': 1 if conn["cellml_bc_in0_or_out1"] == 0 else -1, # 1d outlet (0d inlet): +1; 1d inlet: -1
+                    'resistance': conn["R_T_variable_idx"] if conn["R_T_variable_idx"] >= 0 else None})
 
-        #XXX saving final 1d-0d connectvity information in generated model directory
-        if self.conn_1d_0d_info is not None and self.couple_to_1d:
-            if self.file_prefix.endswith("_0d"):
-                json_filename = self.file_prefix[:-3]+"_coupler1d0d.json"
-            else:
-                json_filename = self.file_prefix+"_coupler1d0d.json"
-            
-            with open(self.generated_model_subdir+"/"+json_filename, "w") as f:
-                json.dump(self.conn_1d_0d_info, f, indent=4)
-            with open(self.cpp_generated_models_dir+"/"+json_filename, "w") as f:
-                json.dump(self.conn_1d_0d_info, f, indent=4)
-
-        
         # generate code from the analysed model
         gen = Generator()
         # using the C profile to generate C code
@@ -1308,6 +1472,50 @@ class CVS0DCppGenerator(object):
         profile.setInterfaceFileNameString(f'{self.output_cpp_file_name}.h')
         gen.setProfile(profile)
         gen.setModel(analysed_model)
+
+        # Variables computed at each evaluation of the rates (libCellML's computeRates() and computeVariables()):
+        # those of computeRates() first, in their order, then those only in computeVariables(). libCellML's
+        # computeVariables() does not recompute the variables that depend only on voi and constants (e.g. a prescribed
+        # inlet flow), because it expects computeRates() to have been called before at the same voi: listing its lines
+        # first would compute the variables that use them with their values from the previous evaluation.
+        # They are then split around the exchange with the 1d solver, and each 1d-0d connection gets its way of
+        # exchanging its values (see analyse_coupling_connections()).
+        rates_var_lines, variables_var_lines = libcellml_variable_lines(gen.implementationCode().split('\n'))
+        non_external_lines = []
+        for line2 in rates_var_lines + variables_var_lines:
+            if 'external' not in line2 and line2 not in non_external_lines:
+                non_external_lines.append(line2)
+        check_variables_computation_order(non_external_lines, rates_var_lines + variables_var_lines,
+                                          coupling_received | coupling_volume_sum)
+        lines_before, lines_after, depends_on = split_variables_at_coupling_exchange(non_external_lines, coupling_received)
+        if lines_after:
+            print(f"1d-0d coupling: {len(lines_after)} variables depend on the variables received from the 1d solver, "
+                  "and are computed after the exchange with it:\n  " + "\n  ".join(line2.strip() for line2 in lines_after))
+        coupling_send_code, coupling_plans = analyse_coupling_connections(coupling_connections, lines_after, depends_on,
+                                                                          variable_names)
+        for conn, plan in zip(coupling_connections, coupling_plans):
+            if plan['affine']:
+                print(f"{conn['where']}: {plan['description']}")
+            if plan['converted']:
+                # the 1d solver exchanges it as a flow bc: it receives P0D and R, and sends back the flow
+                self.conn_1d_0d_info[conn['key']]["cellml_bc_flow0_or_press1"] = 0
+                self.conn_1d_0d_info[conn['key']]["port_flow0_or_press1"] = 1
+                self.conn_1d_0d_info[conn['key']]["pressure_bc_as_flow_bc"] = 1
+
+        #XXX saving final 1d-0d connectvity information in generated model directory
+        if self.conn_1d_0d_info is not None and self.couple_to_1d:
+            if self.file_prefix.endswith("_0d"):
+                json_filename = self.file_prefix[:-3]+"_coupler1d0d.json"
+            else:
+                json_filename = self.file_prefix+"_coupler1d0d.json"
+            
+            # vess1d_name is used only by the generators (the coupler reads this file as integer values only)
+            conn_1d_0d_info_json = {k: {kk: vv for kk, vv in conn.items() if kk != "vess1d_name"}
+                                    for k, conn in self.conn_1d_0d_info.items()}
+            with open(self.generated_model_subdir+"/"+json_filename, "w") as f:
+                json.dump(conn_1d_0d_info_json, f, indent=4)
+            with open(self.cpp_generated_models_dir+"/"+json_filename, "w") as f:
+                json.dump(conn_1d_0d_info_json, f, indent=4)
 
 
         #XXX HEADER FILE
@@ -1433,6 +1641,11 @@ public:
 
         otherHeaderInits = f"""
     void computeNonExternalVariables(double voiLoc, double *statesLoc, double *ratesLoc, double *varLoc);
+    void computeCouplingDependentVariables(double voiLoc, double *statesLoc, double *ratesLoc, double *varLoc);
+    void computeCouplingSentValues(double voiLoc, double *statesLoc, double *ratesLoc, double *varLoc);
+    // values sent to the 1d solver for each 1d-0d connection i: couplingSend[2*i] = pressure P0D (or flow),
+    // couplingSend[2*i+1] = resistance R; the 1d solver imposes P0D + R*q (1d outlet) or P0D - R*q (1d inlet)
+    double couplingSend[{max(2*len(coupling_connections), 2)}];
     void getDelayVariables(double voiLoc, double dtLoc, double *statesLoc, double *varLoc);
     void getExternalVariables(double voiLoc, double dtLoc, double *statesLoc, double *varLoc);
     void getExternalVariablesVolume(double *varLoc);
@@ -1874,7 +2087,7 @@ Model0d::Model0d() :
                         if iStart is not None and iEnd is not None:
                             break
                     if iStart is None or iEnd is None:
-                        print(f"Start or end line index of initialiseVariables function not found: {iStart} {iEnd}.")
+                        print(f"generate_cpp :: ERROR: Start or end line index of initialiseVariables function not found: {iStart} {iEnd}.")
                         exit()
 
                     for iL2, line2 in enumerate(lines[iStart:iEnd], start=iStart):
@@ -1899,7 +2112,7 @@ Model0d::Model0d() :
                         if iStart is not None and iEnd is not None:
                             break
                     if iStart is None or iEnd is None:
-                        print(f"Start or end line index of computeRates function not found: {iStart} {iEnd}.")
+                        print(f"generate_cpp :: ERROR: Start or end line index of computeRates function not found: {iStart} {iEnd}.")
                         exit()
 
                     line = line + "\n"      # start from the original line
@@ -1929,7 +2142,7 @@ Model0d::Model0d() :
                         if iStart is not None and iEnd is not None:
                             break
                     if iStart is None or iEnd is None:
-                        print(f"Start or end line index of computeVariables function not found: {iStart} {iEnd}.")
+                        print(f"generate_cpp :: ERROR: Start or end line index of computeVariables function not found: {iStart} {iEnd}.")
                         exit()
 
                     line = line + "\n"      # start from the original line
@@ -1937,7 +2150,9 @@ Model0d::Model0d() :
                     line += "    computeNonExternalVariables(voi, states, rates, variables);\n"
                     # line += "    if (N1d0d>0){\n"  
                     line += "    getDelayVariables(voi, dt, states, variables);\n"
+                    line += "    computeCouplingSentValues(voi, states, rates, variables);\n"
                     line += "    getExternalVariables(voi, dt, states, variables);\n"
+                    line += "    computeCouplingDependentVariables(voi, states, rates, variables);\n"
                     # line += "    }\n"  
                     line += "}\n"  
 
@@ -1953,20 +2168,21 @@ Model0d::Model0d() :
                     line += "\n"
                     line += "void Model0d::computeNonExternalVariables(double voi, double *states, double *rates, double *variables)\n"
                     line += "{\n"
-                    # The variables of libCellML's computeRates() come first, in their order, then those only in its
-                    # computeVariables(). libCellML's computeVariables() does not recompute the variables that depend
-                    # only on voi and constants (e.g. a prescribed inlet flow), because it expects computeRates() to
-                    # have been called before at the same voi: listing its lines first would compute the variables that
-                    # use them with their values from the previous evaluation (wrong, oscillating 0d solutions).
-                    rates_var_lines = [lines[iL2] for iL2 in lines_to_pass_rates[1:]]
-                    variables_var_lines = [line2 for line2 in lines[iStart+1:iEnd] if pattern.search(line2)]
-                    non_external_lines = []
-                    for line2 in rates_var_lines + variables_var_lines:
-                        if 'external' not in line2 and line2 not in non_external_lines:
-                            non_external_lines.append(line2)
-                    check_variables_computation_order(non_external_lines, rates_var_lines + variables_var_lines)
-                    for line2 in non_external_lines:
+                    # lines_before, lines_after and coupling_send_code: see the analysis after gen.setModel()
+                    for line2 in lines_before:
                         line += line2+"\n"
+                    line += "}\n"
+                    line += "\n"
+                    line += "void Model0d::computeCouplingDependentVariables(double voi, double *states, double *rates, double *variables)\n"
+                    line += "{\n"
+                    for line2 in lines_after:
+                        line += line2+"\n"
+                    line += "}\n"
+                    line += "\n"
+                    # values sent to the 1d solver by each 1d-0d connection, in couplingSend (see analyse_coupling_connections())
+                    line += "void Model0d::computeCouplingSentValues(double voi, double *states, double *rates, double *variables)\n"
+                    line += "{\n"
+                    line += coupling_send_code
                     line += "}" 
 
                 if iL in init_lines_to_mod:
@@ -2546,61 +2762,38 @@ void Model0d::getExternalVariables(double voiLoc, double dtLoc, double *statesLo
         zero_data_dt[1] = dtLoc;
         MPI_Send(zero_data_dt.data(), DATA_LENGTH, MPI_DOUBLE, coupler_rank, TAG_DT, MPI_COMM_WORLD);
 
-        // write...
-        std::string pipeID;
-        int idx_port;
-        int type_port;
-        int idx_res;
-        int type_bc;
+        // then the values of all the 1d-0d connections, computed by computeCouplingSentValues():
+        // {pressure P0D (or flow), resistance R} for each connection (one message, one row per connection)
         for (int i = 0; i < N1d0d; ++i) {
-            pipeID = std::to_string(i+1);
-            if (pipe_1d_0d_info[pipeID][\"port_volume_sum\"] != 1){
-                idx_port = pipe_1d_0d_info[pipeID][\"port_idx\"];
-                type_port = pipe_1d_0d_info[pipeID][\"port_state0_or_var1\"];
-                idx_res = pipe_1d_0d_info[pipeID][\"R_T_variable_idx\"];
-                type_bc = pipe_1d_0d_info[pipeID][\"cellml_bc_flow0_or_press1\"];
-                if (type_bc==0){ // flow bc --> pressure port --> pressure and resistance are passed to 1d
-                    if (type_port==0){ // state
-                        zero_data[i*DATA_LENGTH+0] = statesLoc[idx_port];
-                    } else if (type_port==1){ // variable
-                        zero_data[i*DATA_LENGTH+0] = varLoc[idx_port];
-                    }
-                    if (idx_res<0){
-                        zero_data[i*DATA_LENGTH+1] = 0.0;
-                    } else{
-                        zero_data[i*DATA_LENGTH+1] = varLoc[idx_res];
-                    }
-                } else if (type_bc==1){ // pressure bc --> flow port --> flow is passed to 1d
-                    if (type_port==0){ // state
-                        zero_data[i*DATA_LENGTH+0] = statesLoc[idx_port];
-                    } else if (type_port==1){ // variable
-                        zero_data[i*DATA_LENGTH+0] = varLoc[idx_port];
-                    }
-                }
-            }
-            else {
-                std::cerr << \"ERROR :: this is a volume sum port, use its dedicated messages for this connection. Exiting.\" << std::endl;
-                exit(1);
-            }
+            zero_data[i*DATA_LENGTH+0] = couplingSend[2*i];
+            zero_data[i*DATA_LENGTH+1] = couplingSend[2*i+1];
         }
-        // S1: send data to coupler for all 1d-0d connections (one message, one row per connection)
-        MPI_Send(zero_data.data(), N1d0d*DATA_LENGTH, MPI_DOUBLE, coupler_rank, TAG_DATA, MPI_COMM_WORLD);
+"""
+            for i, (conn, plan) in enumerate(zip(coupling_connections, coupling_plans)):
+                if plan['affine']:
+                    # P0D and R computed from the linear dependence of the sent value on the received one
+                    computeEV += f"""        if (!std::isfinite(couplingSend[{2*i}]) || !std::isfinite(couplingSend[{2*i+1}]) || couplingSend[{2*i+1}] < 0.0) {{
+            std::cerr << "0d solver :: ERROR: 1d-0d connection {conn['key']}: the values sent to the 1d solver, pressure "
+                      << couplingSend[{2*i}] << " and resistance " << couplingSend[{2*i+1}] << ", at time " << voiLoc
+                      << ", must be finite, with a non-negative resistance. Exiting." << std::endl;
+            exit(1);
+        }}
+"""
+            computeEV += """        MPI_Send(zero_data.data(), N1d0d*DATA_LENGTH, MPI_DOUBLE, coupler_rank, TAG_DATA, MPI_COMM_WORLD);
         // ...wait to receive back...
-        // Step 2: receive data with computed 0d coupling variables for all 1d-0d connections
+        // Step 2: receive the values computed by the 1d solver for all the 1d-0d connections
         MPI_Recv(parent_data.data(), N1d0d*DATA_LENGTH, MPI_DOUBLE, coupler_rank, TAG_DATA, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        int idx_cellml;
-        for (int i = 0; i < N1d0d; ++i) {
-            pipeID = std::to_string(i+1);
-            if (pipe_1d_0d_info[pipeID][\"port_volume_sum\"] != 1){
-                idx_cellml = pipe_1d_0d_info[pipeID][\"cellml_idx\"];
-                varLoc[idx_cellml] = parent_data[i*DATA_LENGTH+0];
-            }
-            else {
-                std::cerr << \"ERROR :: this is a volume sum port, use its dedicated messages for this connection. Exiting.\" << std::endl;
-                exit(1);
-            }
-        }
-        // Step 3: now exit this function and compute rates
+"""
+            for i, (conn, plan) in enumerate(zip(coupling_connections, coupling_plans)):
+                if plan['converted']:
+                    computeEV += (f"        varLoc[{conn['received']}] = couplingSend[{2*i}]{'+' if conn['sign'] > 0 else '-'}"
+                                  f"couplingSend[{2*i+1}]*parent_data[{i}*DATA_LENGTH+0]; // connection {conn['key']}: "
+                                  "pressure at the boundary of the 1d vessel, from the flow received (pressure bc "
+                                  "exchanged as a flow bc)\n")
+                else:
+                    computeEV += (f"        varLoc[{conn['received']}] = parent_data[{i}*DATA_LENGTH+0]; // connection "
+                                  f"{conn['key']}\n")
+            computeEV += """        // Step 3: now exit this function and compute rates
     }
 """
         computeEV += """
@@ -2816,6 +3009,7 @@ void Model0d::initialiseVariablesAndComputeConstants() {
     computeComputedConstants(variables);
     getExternalVariablesVolume(variables);
     computeNonExternalVariables(voi, states, rates, variables);
+    computeCouplingDependentVariables(voi, states, rates, variables); // with the initial values received from the 1d
     // computeRates(voi, dt, states, rates, variables); // is this needed here?
     // computeVariables(voi, dt, states, rates, variables); // variables all already computed within computeRates() function
         """
@@ -2958,6 +3152,7 @@ void Model0d::solveOneStep(double dtLoc)
     // computeVariables(voi, states, rates, variables);
     getExternalVariablesVolume(variables);
     computeNonExternalVariables(voi, states, rates, variables);
+    computeCouplingDependentVariables(voi, states, rates, variables); // with the values received at the last exchange
     getDelayVariables(voi, dt, states, variables);
     userData->tOld = voi; // &voi is already incremented by dt within CVode() function
 }
@@ -3015,6 +3210,7 @@ void Model0d::solveOneStep(double dtLoc)
     // computeVariables(voiEnd, states, rates, variables);
     getExternalVariablesVolume(variables);
     computeNonExternalVariables(voi, states, rates, variables);
+    computeCouplingDependentVariables(voi, states, rates, variables); // with the values received at the last exchange
     getDelayVariables(voi, dt, states, variables);
     userData->tOld = voi;
 }
@@ -3150,6 +3346,7 @@ void Model0d::solveOneStep(double dtLoc)
             solveOneStepFunction += """
     getExternalVariablesVolume(variables);
     computeNonExternalVariables(voi, states, rates, variables);
+    computeCouplingDependentVariables(voi, states, rates, variables); // with the values received at the last exchange
     getDelayVariables(voi, dt, states, variables);
 }
 """
@@ -3962,7 +4159,9 @@ class CVS1DPythonGenerator(object):
         else:
             json_filename = self.file_prefix+"_coupler1d0d.json"
         with open(self.initFiles1dFold+"/"+json_filename, "w") as f:
-            json.dump(self.conn_1d_0d_info, f, indent=4)
+            # vess1d_name is used only by the generators (the coupler reads this file as integer values only)
+            json.dump({k: {kk: vv for kk, vv in conn.items() if kk != "vess1d_name"}
+                       for k, conn in self.conn_1d_0d_info.items()}, f, indent=4)
 
         # 3: update the main1D.py script (IF NEEDED)
 
