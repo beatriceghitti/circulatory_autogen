@@ -7376,7 +7376,8 @@ h   = r_0*(a_vessel*exp(b_vessel*r_0)+c_vessel*exp(d_vessel*r_0));-->
                 <ci>q</ci>
                 <apply>
                     <plus/>
-                    <ci>q_Cq_C_d</ci>
+                    <ci>q_C</ci>
+                    <ci>q_C_d</ci>
                     <ci>q_0</ci>
                 </apply>
             </apply>
@@ -7714,6 +7715,7 @@ u_out = 0{J_per_m3};-->
         <variable name="beta_g" public_interface="in" units="dimensionless"/>
         <variable name="theta" public_interface="in" units="dimensionless"/>
         <variable name="l" public_interface="in" units="metre"/>
+        <variable name="r" public_interface="out" units="metre"/>
         <variable name="r_0" public_interface="in" units="metre"/>
         <variable name="u_0" public_interface="in" units="J_per_m3"/>
         <variable name="I" public_interface="out" units="Js2_per_m6"/>
@@ -7867,6 +7869,22 @@ u_out = 0{J_per_m3};-->
                     <plus/>
                     <ci>q_C</ci>
                     <ci>q_0</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>r</ci>
+                <apply>
+                    <root/>
+                    <apply>
+                        <divide/>
+                        <ci>q</ci>
+                        <apply>
+                            <times/>
+                            <pi/>
+                            <ci>l</ci>
+                        </apply>
+                    </apply>
                 </apply>
             </apply>
             <!-- Nonlinear tube law.-->
@@ -8360,6 +8378,7 @@ u_out = 0{J_per_m3};-->
         <variable name="beta_g" public_interface="in" units="dimensionless"/>
         <variable name="theta" public_interface="in" units="dimensionless"/>
         <variable name="l" public_interface="in" units="metre"/>
+        <variable name="r" public_interface="out" units="metre"/>
         <variable name="r_0" public_interface="in" units="metre"/>
         <variable name="u_0" public_interface="in" units="J_per_m3"/>
         <variable name="I" public_interface="out" units="Js2_per_m6"/>
@@ -8513,6 +8532,22 @@ u_out = 0{J_per_m3};-->
                     <plus/>
                     <ci>q_C</ci>
                     <ci>q_0</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>r</ci>
+                <apply>
+                    <root/>
+                    <apply>
+                        <divide/>
+                        <ci>q</ci>
+                        <apply>
+                            <times/>
+                            <pi/>
+                            <ci>l</ci>
+                        </apply>
+                    </apply>
                 </apply>
             </apply>
             <!-- Nonlinear tube law.-->
@@ -9805,6 +9840,7 @@ u_out = 0{J_per_m3};-->
         <variable name="beta_g" public_interface="in" units="dimensionless"/>
         <variable name="theta" public_interface="in" units="dimensionless"/>
         <variable name="l" public_interface="in" units="metre"/>
+        <variable name="r" public_interface="out" units="metre"/>
         <variable name="r_0" public_interface="in" units="metre"/>
         <variable name="u_0" public_interface="in" units="J_per_m3"/>
         <variable name="I" public_interface="out" units="Js2_per_m6"/>
@@ -9999,6 +10035,22 @@ u_out = 0{J_per_m3};-->
                     <plus/>
                     <ci>q_p</ci>
                     <ci>q_d</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>r</ci>
+                <apply>
+                    <root/>
+                    <apply>
+                        <divide/>
+                        <ci>q</ci>
+                        <apply>
+                            <times/>
+                            <pi/>
+                            <ci>l</ci>
+                        </apply>
+                    </apply>
                 </apply>
             </apply>
             <!-- Nonlinear tube law-->
@@ -10688,6 +10740,7 @@ u_out = 0{J_per_m3};-->
         <variable name="beta_g" public_interface="in" units="dimensionless"/>
         <variable name="theta" public_interface="in" units="dimensionless"/>
         <variable name="l" public_interface="in" units="metre"/>
+        <variable name="r" public_interface="out" units="metre"/>
         <variable name="r_0" public_interface="in" units="metre"/>
         <variable name="u_0" public_interface="in" units="J_per_m3"/>
         <variable name="I" public_interface="out" units="Js2_per_m6"/>
@@ -10912,6 +10965,22 @@ u_out = 0{J_per_m3};-->
                     <plus/>
                     <ci>q_C</ci>
                     <ci>q_0</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>r</ci>
+                <apply>
+                    <root/>
+                    <apply>
+                        <divide/>
+                        <ci>q</ci>
+                        <apply>
+                            <times/>
+                            <pi/>
+                            <ci>l</ci>
+                        </apply>
+                    </apply>
                 </apply>
             </apply>
             <!-- Nonlinear tube law.-->
@@ -11551,6 +11620,7 @@ u_out = 0{J_per_m3};-->
         <variable name="beta_g" public_interface="in" units="dimensionless"/>
         <variable name="theta" public_interface="in" units="dimensionless"/>
         <variable name="l" public_interface="in" units="metre"/>
+        <variable name="r" public_interface="out" units="metre"/>
         <variable name="r_0" public_interface="in" units="metre"/>
         <variable name="u_0" public_interface="in" units="J_per_m3"/>
         <variable name="I" public_interface="out" units="Js2_per_m6"/>
@@ -11618,6 +11688,22 @@ u_out = 0{J_per_m3};-->
                     <plus/>
                     <ci>q_p</ci>
                     <ci>q_d</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>r</ci>
+                <apply>
+                    <root/>
+                    <apply>
+                        <divide/>
+                        <ci>q</ci>
+                        <apply>
+                            <times/>
+                            <pi/>
+                            <ci>l</ci>
+                        </apply>
+                    </apply>
                 </apply>
             </apply>
             <!-- Constitutive Relations-->
@@ -12453,6 +12539,7 @@ u_out = 0{J_per_m3};-->
         <variable name="beta_g" public_interface="in" units="dimensionless"/>
         <variable name="theta" public_interface="in" units="dimensionless"/>
         <variable name="l" public_interface="in" units="metre"/>
+        <variable name="r" public_interface="out" units="metre"/>
         <variable name="r_0" public_interface="in" units="metre"/>
         <variable name="u_0" public_interface="in" units="J_per_m3"/>
         <variable name="I" public_interface="out" units="Js2_per_m6"/>
@@ -12611,6 +12698,22 @@ u_out = 0{J_per_m3};-->
                     <plus/>
                     <ci>q_C</ci>
                     <ci>q_0</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>r</ci>
+                <apply>
+                    <root/>
+                    <apply>
+                        <divide/>
+                        <ci>q</ci>
+                        <apply>
+                            <times/>
+                            <pi/>
+                            <ci>l</ci>
+                        </apply>
+                    </apply>
                 </apply>
             </apply>
             <!-- Nonlinear tube law.-->
@@ -13118,6 +13221,7 @@ u_out = 0{J_per_m3};-->
         <variable name="beta_g" public_interface="in" units="dimensionless"/>
         <variable name="theta" public_interface="in" units="dimensionless"/>
         <variable name="l" public_interface="in" units="metre"/>
+        <variable name="r" public_interface="out" units="metre"/>
         <variable name="r_0" public_interface="in" units="metre"/>
         <variable name="u_0" public_interface="in" units="J_per_m3"/>
         <variable name="I" public_interface="out" units="Js2_per_m6"/>
@@ -13185,6 +13289,22 @@ u_out = 0{J_per_m3};-->
                     <plus/>
                     <ci>q_p</ci>
                     <ci>q_d</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>r</ci>
+                <apply>
+                    <root/>
+                    <apply>
+                        <divide/>
+                        <ci>q</ci>
+                        <apply>
+                            <times/>
+                            <pi/>
+                            <ci>l</ci>
+                        </apply>
+                    </apply>
                 </apply>
             </apply>
             <!-- Constitutive Relations-->
