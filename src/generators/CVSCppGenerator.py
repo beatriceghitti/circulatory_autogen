@@ -490,15 +490,29 @@ class CVS0DCppGenerator(object):
         elif len(vessel_ports) == 1:
             k = 0
         elif side == 'exit':
-            # the CellML generator connects the k-th vessel of out_vessels to the k-th exit vessel_port (1d vessels
-            # included), unless one of them is a Min_/MinNout_ junction (then the exit vessel_ports are shared)
+            # Several exit vessel_ports (e.g. split junction: v_out_1, v_out_2): the 1d vessel must get the one that
+            # the CellML generator (__write_module_mapping_for_row) leaves to it. The CellML generator connects them
+            # while processing the row of this module: it walks out_vessels in order and gives each one the next
+            # free exit vessel_port. A 1d out_vessel also takes one (no mapping is written for it, but the port is
+            # marked as used), so the k-th out_vessel gets the k-th exit vessel_port: k = position in out_vessels.
+            # Example: out_vessels = [z (0d), A_dn (1d)] -> z gets v_out_1, A_dn gets v_out_2 (k = 1).
+            # If an out_vessel is a Min_/MinNout_ junction, the CellML generator does not mark the ports as used
+            # (they are shared), so the rule does not hold.
             if any(vessel_type_of(name).startswith(("Min_", "MinNout_")) for name in neighbours):
                 error("the module has several exit vessel_ports and one of its out_vessels is a Min_/MinNout_ "
                       "junction: which vessel_port is connected to the 1d vessel is not defined.")
             k = neighbours.index(vessel_1d)
         else:
-            # the CellML generator connects each 0d vessel of inp_vessels to the first free entrance vessel_port
-            # (1d vessels are not connected there): the 1d vessels get the remaining ones, in the order of inp_vessels
+            # Several entrance vessel_ports (e.g. merge junction: v_in_1, v_in_2). The CellML generator connects them
+            # while processing the rows of the upstream modules: each 0d inp_vessel takes the first free entrance
+            # vessel_port of this module. The rows of the 1d vessels (module_format cpp) are skipped, so they never
+            # take one: the 0d inp_vessels get the first ports, and the 1d vessels the ones after them, in the order
+            # of inp_vessels (the CellML generator writes nothing for them, so this order is a choice made here).
+            # k = (number of 0d inp_vessels) + (position of this 1d vessel among the 1d inp_vessels).
+            # Example: inp_vessels = [A_up (1d), z (0d)] -> z gets v_in_1, A_up gets v_in_2 (k = 1 + 0), which is
+            # not the position of A_up in inp_vessels.
+            # If an inp_vessel is a Nout_/MinNout_ junction, the CellML generator does not mark the ports as used
+            # (they are shared), so the rule does not hold.
             if any(vessel_type_of(name).startswith(("Nout_", "MinNout_")) for name in neighbours):
                 error("the module has several entrance vessel_ports and one of its inp_vessels is a Nout_/MinNout_ "
                       "junction: which vessel_port is connected to the 1d vessel is not defined.")
