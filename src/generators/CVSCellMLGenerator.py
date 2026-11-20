@@ -22,6 +22,13 @@ except ImportError as e:
           'You will need to open generated models in OpenCOR to check for errors.')
     LIBCELLML_available = False
 
+# Ports of a 0d module used only for its coupling with a 1d (FV) vessel, by the C++ generator (CVSCppGenerator.py).
+# They are never connected between two 0d modules.
+# - FV_resistance_port: a resistance that is not used in the equations of the module and is applied by the 1d solver only,
+#   between the pressure sent by the module and the boundary of the 1d vessel (e.g., R_T1_wCont of the vp_T_*_wCont
+#   terminals - this is mainly the case for terminal RCR Windkessel elements, rather than standard 0D vessel element types). 
+#   In entrance_ports (exit_ports), the k-th FV_resistance_port belongs to the k-th vessel_port of the list.
+FV_COUPLING_PORT_TYPES = ("FV_resistance_port",)
 
 
 class CVS0DCellMLGenerator(object):
@@ -599,6 +606,8 @@ class CVS0DCellMLGenerator(object):
         port_types = []
         for out_port_idx in range(len(module_row["exit_ports"])):
             port_type = module_row["exit_ports"][out_port_idx]["port_type"]
+            if port_type in FV_COUPLING_PORT_TYPES:
+                continue # used only for the coupling with a 1d vessel, never connected to a 0d module
             if port_type in [port_types[II]["port_type"] for II in range(len(port_types))]:
                 port_type_idx = [port_types[II]["port_type"] for II
                                  in range(len(port_types))].index(port_type)
@@ -614,6 +623,8 @@ class CVS0DCellMLGenerator(object):
                 
         for out_port_idx in range(len(module_row["general_ports"])):
             port_type = module_row["general_ports"][out_port_idx]["port_type"]
+            if port_type in FV_COUPLING_PORT_TYPES:
+                continue # used only for the coupling with a 1d vessel, never connected to a 0d module
             if port_type in [port_types[II]["port_type"] for II in range(len(port_types))]:
                 port_type_idx = [port_types[II]["port_type"] for II
                                  in range(len(port_types))].index(port_type)
@@ -660,6 +671,8 @@ class CVS0DCellMLGenerator(object):
             entrance_port_types = []
             for entrance_port_idx in range(len(out_module_row["entrance_ports"])):
                 port_type = out_module_row["entrance_ports"][entrance_port_idx]["port_type"]
+                if port_type in FV_COUPLING_PORT_TYPES:
+                    continue # used only for the coupling with a 1d vessel, never connected to a 0d module
                 if port_type in [entrance_port_types[II]["port_type"] for II in range(len(entrance_port_types))]:
                     port_type_idx = [entrance_port_types[II]["port_type"] for II
                                      in range(len(entrance_port_types))].index(port_type)
@@ -672,6 +685,8 @@ class CVS0DCellMLGenerator(object):
                     
             for entrance_port_idx in range(len(out_module_row["general_ports"])):
                 port_type = out_module_row["general_ports"][entrance_port_idx]["port_type"]
+                if port_type in FV_COUPLING_PORT_TYPES:
+                    continue # used only for the coupling with a 1d vessel, never connected to a 0d module
                 if port_type in [entrance_port_types[II]["port_type"] for II in range(len(entrance_port_types))]:
                     port_type_idx = [entrance_port_types[II]["port_type"] for II
                                      in range(len(entrance_port_types))].index(port_type)
@@ -2125,10 +2140,14 @@ class CVS0DCellMLGenerator(object):
         shared_exit_port = False
         shared_general_port = False
         for exit_port in exit_ports:
+            if exit_port["port_type"] in FV_COUPLING_PORT_TYPES:
+                continue # never connected between 0d modules
             if exit_port["port_type"] in [entrance_port["port_type"] for entrance_port in entrance_ports] or exit_port["port_type"] in [general_port["port_type"] for general_port in input_general_ports]:
                 shared_exit_port = True
                 break
         for general_port in output_general_ports:
+            if general_port["port_type"] in FV_COUPLING_PORT_TYPES:
+                continue # never connected between 0d modules
             if general_port["port_type"] in [entrance_port["port_type"] for entrance_port in entrance_ports] or general_port["port_type"] in [general_port["port_type"] for general_port in input_general_ports]:
                 shared_general_port = True
                 break

@@ -245,6 +245,7 @@ class CSV0DModelParser(object):
                                     elif BC_type_0d.startswith("nn"):
                                         pass
                                     self.conn_1d_0d_info[str(N1d0d+1)] = {"vess1d_idx": i,
+                                                                        "vess1d_name": vess1d,
                                                                         "vess1d_bc_in0_or_out1": 0,
                                                                         "vess0d_idx": int(idx0d_int),
                                                                         "cellml_idx": -1,
@@ -324,6 +325,7 @@ class CSV0DModelParser(object):
                                     elif BC_type_0d.startswith("nn"):
                                         pass
                                     self.conn_1d_0d_info[str(N1d0d+1)] = {"vess1d_idx": i,
+                                                                        "vess1d_name": vess1d,
                                                                         "vess1d_bc_in0_or_out1": 1,
                                                                         "vess0d_idx": int(idx0d_int),
                                                                         "cellml_idx": -1,
@@ -392,7 +394,9 @@ class CSV0DModelParser(object):
         idx_last = self.vessel_filename.rfind("vessel_array")
         json_filename = self.vessel_filename[:idx_last] + "coupler1d0d_unfinished.json"
         with open(json_filename, "w") as f:
-            json.dump(self.conn_1d_0d_info, f, indent=4)
+            # vess1d_name is used only by the generators (the coupler reads this file as integer values only)
+            json.dump({k: {kk: vv for kk, vv in conn.items() if kk != "vess1d_name"}
+                       for k, conn in self.conn_1d_0d_info.items()}, f, indent=4)
 
         # print("0D vessel array", vessels_df_0d.head())
         # print("1D vessel array", vessels_df_1d.head())
