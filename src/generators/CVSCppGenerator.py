@@ -580,6 +580,7 @@ class CVS0DCppGenerator(object):
                       "(exit: 'aorta' or 'aortic_root' -> u_root, 'par' -> u_par; entrance: 'ivc', 'svc', 'pvn').")
             k = found[0]
         elif any(is_multi_port(port) for port in vessel_ports):
+            #XXX TODO Extend: For now, coupling generator refuses to couple a 1D vessel to a multi-port side
             error("its vessel_port is a multi_port (junction module): coupling it to a 1d vessel is not supported.")
         elif len(vessel_ports) == 1:
             k = 0
