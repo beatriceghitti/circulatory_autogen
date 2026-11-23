@@ -266,7 +266,7 @@ void Model0d::closeOutputFiles()
 /* End functions */
 
 /* Functions handling the MPI coupling with the 1d solver */
-int Model0d::initCoupling(int couplerRank, double T0, int nCC)
+int Model0d::initCoupling(int couplerRank, double T0, double pre_time, double sim_time)
 {
     // MPI has already been initialised and the world communicator split in main0d.cpp (setup_coupling()).
     // All messages go through the coupler: see coupler_mpi_common.h for the protocol.
@@ -294,11 +294,11 @@ int Model0d::initCoupling(int couplerRank, double T0, int nCC)
     }
     double cfg[COUPLING_CONFIG_LENGTH];
     MPI_Recv(cfg, COUPLING_CONFIG_LENGTH, MPI_DOUBLE, coupler_rank, TAG_CONFIG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-    const double mine[COUPLING_CONFIG_LENGTH] = {static_cast<double>(N1d0d), static_cast<double>(couple_volume_sum), T0, static_cast<double>(nCC),
-                                                 tolTime, coupling_end_time(T0, nCC)};
+    const double mine[COUPLING_CONFIG_LENGTH] = {static_cast<double>(N1d0d), static_cast<double>(couple_volume_sum), T0, pre_time, sim_time,
+                                                 tolTime, coupling_save_time(pre_time), coupling_end_time(pre_time, sim_time)};
     for (int j = 0; j < COUPLING_CONFIG_LENGTH; ++j) {
         if (std::abs(cfg[j]-mine[j]) > 1e-12*std::abs(mine[j])) {
-            std::cerr << "0d solver :: Error: coupling mismatch with the coupler [N1d0d, couple_volume_sum, T0, nCC, tolTime, tEnd]: coupler {";
+            std::cerr << "0d solver :: Error: coupling mismatch with the coupler [N1d0d, couple_volume_sum, T0, pre_time, sim_time, tolTime, tSave, tEnd]: coupler {";
             for (int k = 0; k < COUPLING_CONFIG_LENGTH; ++k) std::cerr << (k ? ", " : "") << cfg[k];
             std::cerr << "} vs 0d solver {";
             for (int k = 0; k < COUPLING_CONFIG_LENGTH; ++k) std::cerr << (k ? ", " : "") << mine[k];

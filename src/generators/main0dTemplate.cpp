@@ -71,30 +71,37 @@ int main(int argc, char* argv[]) {
     }
 
     std::string ODEsolver; // ODE solver: "explEul" / "Heun" / "midpoint" / "RK4" / "CVODE" / "PETSC"
-    double T0 = 0.0; // cardiac cycle duration 
-    int nCC = 0; // number of cardiac cycles
+    double T0 = -1.0; // cardiac period: parameter T of the model
+    double pre_time = -1.0; // time simulated to reach a periodic steady state (results are not saved)
+    double sim_time = -1.0; // time simulated after pre_time, with the results saved
     std::string modelName;
     std::string initStatePath;
     if (is_coupled) {
-        // ODEsolver = std::string(argv[2]);
-        // T0 = std::stod(std::string(argv[3]));
-        // nCC = std::stoi(std::string(argv[4]));
-        // modelName = std::string(argv[5]);
+        // values of the coupler configuration file (coupler_config.json), passed by launch_coupled_mpi.bash
         for (int i = 1; i < argc; i++) {
             if (std::strcmp(argv[i], "-ODEsolver") == 0) ODEsolver = std::string(argv[++i]);
             else if (std::strcmp(argv[i], "-T0") == 0) T0 = std::stod(std::string(argv[++i]));
-            else if (std::strcmp(argv[i], "-nCC") == 0) nCC = std::stoi(std::string(argv[++i]));
+            else if (std::strcmp(argv[i], "-preTime") == 0) pre_time = std::stod(std::string(argv[++i]));
+            else if (std::strcmp(argv[i], "-simTime") == 0) sim_time = std::stod(std::string(argv[++i]));
             else if (std::strcmp(argv[i], "-networkName") == 0) modelName = std::string(argv[++i]);
             else if (std::strcmp(argv[i], "-initStatePath") == 0) initStatePath = std::string(argv[++i]);
         }
+        if (!(T0 > 0.0) || !(pre_time >= 0.0) || !(sim_time > 0.0)) {
+            std::cerr << "0d solver :: ERROR: -T0 > 0, -preTime >= 0 and -simTime > 0 are required in a coupled run (T0 = "
+                      << T0 << ", pre_time = " << pre_time << ", sim_time = " << sim_time << " given)" << std::endl;
+            MPI_Abort(MPI_COMM_WORLD, 1);
+        }
     } else{
-        ODEsolver = "CVODE";
-        T0 = 1.1;
-        nCC = 5;
-        modelName = "aortic_bif_0d";
+        // values of the user inputs at generation (replaced by CVSCppGenerator.py)
+        ODEsolver = "CVODE"; // set at generation
+        T0 = 1.0; // set at generation
+        pre_time = 0.0; // set at generation
+        sim_time = 1.0; // set at generation
+        modelName = "model0d"; // set at generation
         initStatePath = "None";
     }
     std::cout << "0d solver :: ODE solver : " << ODEsolver << std::endl;
+    std::cout << "0d solver :: T0 : " << T0 << " || pre_time : " << pre_time << " || sim_time : " << sim_time << std::endl;
  
     // initialize 0d model.
     Model0d* model0d;
@@ -125,7 +132,7 @@ int main(int argc, char* argv[]) {
     if (is_coupled) {
         // N1d0d = model0d->N1d0d;
         // N1d0dTot = model0d->N1d0dTot;
-        int status = model0d->initCoupling(coupler_rank, T0, nCC);
+        int status = model0d->initCoupling(coupler_rank, T0, pre_time, sim_time);
         if (status==1){
             MPI_Abort(MPI_COMM_WORLD, 1);
         }
@@ -135,9 +142,18 @@ int main(int argc, char* argv[]) {
     const double tIni = 0.0;
     const double dtSample = 1e-3;
     double tEnd = dtSample;
-    const double tEndGlob = coupling_end_time(T0, nCC); // same end time as the coupler, see coupler_mpi_common.h
+    const double tEndGlob = coupling_end_time(pre_time, sim_time); // same end time as the coupler, see coupler_mpi_common.h
     const double dt0D = 1e-4;
-    const double tSaveRes = ((nCC-2)*T0 > 0.0) ? (nCC-2)*T0 : 0.0;
+    const double tSaveRes = coupling_save_time(pre_time); // same save time as the coupler, see coupler_mpi_common.h
+    // pre_time and sim_time must be multiples of the output time step (checked at generation, and here again because
+    // the coupler configuration file can be edited), so that the results are saved exactly from pre_time to the end time
+    for (double t : {pre_time, sim_time}) {
+        if (!(std::abs(t - std::round(t/dtSample)*dtSample) <= tolTime)) {
+            std::cerr << "0d solver :: ERROR: pre_time = " << pre_time << " and sim_time = " << sim_time
+                      << " must be multiples of the output time step dt = " << dtSample << std::endl;
+            MPI_Abort(MPI_COMM_WORLD, 1);
+        }
+    }
     int saveResTime = 0;
     
     model0d->voi = tIni;
@@ -187,7 +203,7 @@ int main(int argc, char* argv[]) {
                 saveResTime = 1;
             }
             if (saveResTime) {
-                if (time >= tSaveRes) {
+                if (time >= tSaveRes-tolTime) {
                     model0d->writeOutput(time);
                 }
             }

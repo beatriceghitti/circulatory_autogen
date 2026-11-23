@@ -37,8 +37,8 @@ enum CouplingColor {
 // a solver that starts a new time step without completing the previous one, instead of deadlocking.
 enum CouplingTag {
     TAG_CONFIG  = 1,   // coupler -> 0d/1d : handshake, COUPLING_CONFIG_LENGTH doubles
-                       //                    {N1d0d, couple_volume_sum, T0, nCC, COUPLING_TOL_TIME,
-                       //                     coupling_end_time(T0, nCC)}
+                       //                    {N1d0d, couple_volume_sum, T0, pre_time, sim_time, COUPLING_TOL_TIME,
+                       //                     coupling_save_time(pre_time), coupling_end_time(pre_time, sim_time)}
     TAG_DONE    = 2,   // 0d/1d -> coupler : the solver has completed its time loop {final time, 0}
                        //                    (the coupler aborts the job if the 0d solver stops before the end time)
     TAG_DT      = 10,  // 0d <-> coupler <-> 1d : {time, time step} within a global time step:
@@ -50,7 +50,7 @@ enum CouplingTag {
 };
 
 constexpr int COUPLING_DATA_LENGTH   = 2;  // doubles per time/time step message and per 1d-0d connection
-constexpr int COUPLING_CONFIG_LENGTH = 6;  // doubles in the TAG_CONFIG handshake message
+constexpr int COUPLING_CONFIG_LENGTH = 8;  // doubles in the TAG_CONFIG handshake message
 constexpr double COUPLING_END_OF_STEP = -999.0; // time step value of the TAG_DT message that ends a global time step
 
 // Time synchronisation, checked by the coupler (which aborts the job on any mismatch):
@@ -88,14 +88,26 @@ inline double coupling_round_time(double t)
     return std::round(t * COUPLING_INV_TOL_TIME) / COUPLING_INV_TOL_TIME;
 }
 
-// End time of a coupled simulation: nCC cardiac cycles of duration T0, rounded with COUPLING_TOL_TIME.
-// Computed by the coupler and the 0d solver, which checks in the handshake that the coupler has the same value.
-// The 1d solver receives it from the coupler in the handshake (like COUPLING_TOL_TIME), so that all three
-// programs use exactly the same end time. Each solver stops after the time step that reaches it:
-// time >= end time - COUPLING_TOL_TIME (the coupler aborts the job if the 0d solver stops before).
-inline double coupling_end_time(double T0, int nCC)
+// Time window of a coupled simulation, set by pre_time and sim_time of the user inputs (yaml file), as for the
+// other model types of circulatory_autogen: the solvers run from 0 to the end time pre_time + sim_time, and save
+// their results from the save time pre_time. Both times are rounded with COUPLING_TOL_TIME.
+// They are computed by the coupler and the 0d solver, which checks in the handshake that the coupler has the same
+// values. The 1d solver receives them from the coupler in the handshake (like COUPLING_TOL_TIME), so that all
+// three programs use exactly the same times. Each solver:
+// - saves its results at the output times >= save time - COUPLING_TOL_TIME;
+// - stops after the time step that reaches the end time: time >= end time - COUPLING_TOL_TIME
+//   (the coupler aborts the job if the 0d solver stops before).
+// The cardiac period T0 (parameter T of the model) does not set the time window: the 1d solver uses it as the
+// period of its prescribed boundary conditions (e.g. the inflow), and the number of cardiac cycles simulated is
+// (pre_time + sim_time)/T0.
+inline double coupling_save_time(double pre_time)
 {
-    return coupling_round_time(nCC*T0);
+    return coupling_round_time(pre_time);
+}
+
+inline double coupling_end_time(double pre_time, double sim_time)
+{
+    return coupling_round_time(pre_time + sim_time);
 }
 
 struct CouplingLayout {

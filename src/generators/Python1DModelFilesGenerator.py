@@ -229,11 +229,13 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
                 iN +=1
                     
             else:
+                # code 0: inflow BC
+                # code 1: inlet pressure BC
                 if (len(inp_vess)==1 and inp_vess[0]=='input_flow_BC'):
                     nodes[iN] = {'id' : iN, 'type' : 0, 'vess_list' : [iV]} # code 0: inflow BC
                     iN +=1
                 elif (len(inp_vess)==1 and inp_vess[0]=='input_pressure_BC'):
-                    nodes[iN] = {'id' : iN, 'type' : 1, 'vess_list' : [iV]} # code 1: input pressure BC
+                    nodes[iN] = {'id' : iN, 'type' : 1, 'vess_list' : [iV]} # code 1: inlet pressure BC
                     iN +=1
 
                 # elif (len(inp_vess)==1 and inp_vess[0]=='output_flow_BC'):
@@ -348,11 +350,13 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
                 iN +=1
 
             else:
+                # code -1: RCR / single-resistance / outlet pressure BC
+                # code -2: outflow BC
                 if (len(out_vess)==1 and out_vess[0]=='output_flow_BC'):
-                    nodes[iN] = {'id' : iN, 'type' : -3, 'vess_list' : [iV]} # code -3: ouflow BC; code -1 (and sometimes -2) reserved to RCR / single-resistance BC
+                    nodes[iN] = {'id' : iN, 'type' : -2, 'vess_list' : [iV]} # code -2: outflow BC
                     iN +=1
                 elif (len(out_vess)==1 and out_vess[0]=='output_pressure_BC'):
-                    nodes[iN] = {'id' : iN, 'type' : -4, 'vess_list' : [iV]} # code -4: output pressure BC; code -1 (and sometimes -2) reserved to RCR / single-resistance BC
+                    nodes[iN] = {'id' : iN, 'type' : -1, 'vess_list' : [iV]} # code -1: RCR / single-resistance / outlet pressure BC
                     iN +=1
 
                 # elif (len(out_vess)==1 and out_vess[0]=='input_flow_BC'):
@@ -522,7 +526,10 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
     return vess, nodes
 
 
-def generate1DPythonSimInitFile(df_params, vess, nodes, sim_init_file, filename_prefix, run_folder, ODEsolver, dtSample, computeTotBV):
+def generate1DPythonSimInitFile(df_params, vess, nodes, sim_init_file, filename_prefix, run_folder, ODEsolver, dtSample, computeTotBV,
+                                T0, pre_time, sim_time):
+    # T0: cardiac period, parameter T of the model (get_cardiac_period() in CVSCppGenerator.py)
+    # pre_time, sim_time: time window of the user inputs (get_time_window() in CVSCppGenerator.py)
 
     config = ConfigParser(allow_no_value=True, delimiters=(':',)) # delimiters=('=', ':')
     config.optionxform = str  # keep keys case-sensitive
@@ -559,13 +566,7 @@ def generate1DPythonSimInitFile(df_params, vess, nodes, sim_init_file, filename_
         'compute_tot_volume': computeTotBV
     }
 
-    T0 = 1.0
-    for i in range(df_params.shape[0]):
-        if (df_params.at[i,'variable_name']=='T' and df_params.at[i,'units']=='second'):
-            T0 = float(df_params.at[i,'value'])
-            break
-    tEnd = 10*T0
-    # tEnd = nCC*T0
+    tEnd = pre_time + sim_time
     
     config['discretization'] = {
         'nCellsMin': 2,
@@ -578,7 +579,8 @@ def generate1DPythonSimInitFile(df_params, vess, nodes, sim_init_file, filename_
         'dtSample': dtSample, 
         'tolTime': 1e-11 # 1e-10
     }
-    # T0 and tEnd will be overridden by the coupler using T0 and nCC instead.
+    # In a coupled run, the 1d solver gets T0, pre_time and sim_time from the coupler instead (coupler_config.json,
+    # written with the same values), and checks that T0 is the same as here.
     # tolTime is used only when running the 1d solver alone: in a coupled run, the 1d solver
     # uses the time tolerance of the coupler (COUPLING_TOL_TIME in src/coupler/coupler_mpi_common.h).
 
@@ -702,10 +704,9 @@ def generate1DPythonSimInitFile(df_params, vess, nodes, sim_init_file, filename_
     }
 
 
-    # tSaveIni = np.maximum(0.0, (nCC-2)*T0)
     config['results'] = {
         'outputFoldName': 'res',
-        'tSaveIni': -1.0, # 0.0,
+        'tSaveIni': pre_time, # results saved from pre_time, as in the 0d solver
         'tSaveEnd': -1.0, # 1000.0,
         'saveResSpace': 0,
         'tSaveIniSpace': -1.0, # 0.0,

@@ -45,7 +45,9 @@ if [[ ! -f "$CONFIG" ]]; then
 fi
 
 # Print the values needed to launch the solvers, one per line.
-# Defaults for ODEsolver, T0, nCC and networkName are the same as in coupler.cpp.
+# Defaults for ODEsolver and networkName are the same as in coupler.cpp. T0, pre_time and sim_time are required,
+# as in coupler.cpp (written by the generator: T0 is the parameter T of the model, pre_time and sim_time come
+# from the user inputs).
 read_config() {
     "$PYTHON_CFG" - "$CONFIG" <<'PYEOF'
 import json, sys
@@ -64,8 +66,9 @@ values = [
     get("solver0d_path"),
     get("initFile_sim1d_path"),
     get("ODEsolver", "CVODE"),
-    repr(float(get("T0", 1.1))),   # full precision: the coupler checks that the solvers use the same T0
-    str(int(get("nCC", 5))),
+    repr(float(get("T0"))),        # full precision: the solvers check that the coupler uses the same values
+    repr(float(get("pre_time"))),
+    repr(float(get("sim_time"))),
     get("networkName", "aortic_bif_hybrid"),
     get("initStatePath", "None"),
 ]
@@ -74,7 +77,7 @@ PYEOF
 }
 
 readarray -t V < <(read_config)
-if [[ ${#V[@]} -ne 9 ]]; then
+if [[ ${#V[@]} -ne 10 ]]; then
     echo "launch_coupled_mpi :: Error: could not read $CONFIG" >&2
     exit 1
 fi
@@ -84,9 +87,10 @@ SOLVER0D="${V[2]}"
 INITFILE1D="${V[3]}"
 ODESOLVER="${V[4]}"
 T0="${V[5]}"
-NCC="${V[6]}"
-NETWORK="${V[7]}"
-INITSTATE="${V[8]}"
+PRETIME="${V[6]}"
+SIMTIME="${V[7]}"
+NETWORK="${V[8]}"
+INITSTATE="${V[9]}"
 
 for f in "$COUPLER" "$SOLVER0D" "$PYTHON"; do
     if [[ ! -x "$f" ]]; then
@@ -224,12 +228,12 @@ esac
 echo "launch_coupled_mpi :: coupler   : $COUPLER $CONFIG"
 echo "launch_coupled_mpi :: 0d solver : $SOLVER0D"
 echo "launch_coupled_mpi :: 1d solver : $PYTHON $SOLVER1D"
-echo "launch_coupled_mpi :: ODEsolver=$ODESOLVER T0=$T0 nCC=$NCC networkName=$NETWORK initStatePath=$INITSTATE"
+echo "launch_coupled_mpi :: ODEsolver=$ODESOLVER T0=$T0 pre_time=$PRETIME sim_time=$SIMTIME networkName=$NETWORK initStatePath=$INITSTATE"
 
 # python -u: unbuffered output, so that the 1d solver's log interleaves with the others.
 # $@ : all remaining arguments are passed to mpirun.
 exec "$MPIRUN" "$@" \
     -np 1 "$COUPLER" "$CONFIG" \
-  : -np 1 "$SOLVER0D" -coupled 1 -ODEsolver "$ODESOLVER" -T0 "$T0" -nCC "$NCC" \
+  : -np 1 "$SOLVER0D" -coupled 1 -ODEsolver "$ODESOLVER" -T0 "$T0" -preTime "$PRETIME" -simTime "$SIMTIME" \
         -networkName "$NETWORK" -initStatePath "$INITSTATE" \
-  : -np 1 "$PYTHON" -u "$SOLVER1D" 1 "$ODESOLVER" "$T0" "$NCC" "$INITFILE1D" "$INITSTATE"
+  : -np 1 "$PYTHON" -u "$SOLVER1D" 1 "$ODESOLVER" "$T0" "$PRETIME" "$SIMTIME" "$INITFILE1D" "$INITSTATE"

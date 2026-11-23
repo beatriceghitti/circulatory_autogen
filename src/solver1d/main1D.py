@@ -75,7 +75,12 @@ def run1DBFmod(AICstate=[], QICstate=[]):
 
     init_file = None
     if is_coupled:
-        init_file = sys.argv[5]
+        # main1D.py 1 <ODEsolver> <T0> <pre_time> <sim_time> <input.ini> <initStatePath>
+        # (values of the coupler configuration file, passed by src/coupler/launch_coupled_mpi.bash)
+        if len(sys.argv) != 8:
+            cpl.abort(f"1d solver :: ERROR: a coupled run needs 7 arguments (1 <ODEsolver> <T0> <pre_time> <sim_time> "
+                      f"<input.ini> <initStatePath>), not {len(sys.argv)-1}: use src/coupler/launch_coupled_mpi.bash")
+        init_file = sys.argv[6]
     else:
         if len(sys.argv) > 1:
             init_file = sys.argv[1]
@@ -96,15 +101,27 @@ def run1DBFmod(AICstate=[], QICstate=[]):
     ODEsolver = None
     T0 = 0.
     nCC = 0
+    pre_time = None
+    sim_time = None
     initStatePath = "None"
     initStatesFile = "None"
     initVarsFile = "None"
     if is_coupled:
         ODEsolver = sys.argv[2]
+        # cardiac period (parameter T of the model) and time window (pre_time and sim_time of the user inputs)
         T0 = float(sys.argv[3])
-        nCC = int(sys.argv[4])
+        pre_time = float(sys.argv[4])
+        sim_time = float(sys.argv[5])
+        # T0 is the period of the prescribed boundary conditions (e.g. the inflow): input.ini is written by the
+        # generator with the same value, so a different value means that the files come from different generations
+        T0_ini = config.getfloat('discretization', 'T0', fallback=None)
+        if T0_ini is not None and not abs(T0_ini - T0) <= 1e-12*abs(T0):
+            cpl.abort(f"1d solver :: ERROR: T0 = {T0_ini} in {init_file}, but T0 = {T0} in the coupler configuration "
+                      "(parameter T of the model): regenerate the 1d input files")
+        # number of cardiac cycles simulated (information only: the time window is set by pre_time and sim_time)
+        nCC = (pre_time + sim_time)/T0
 
-        initStatePath = sys.argv[6]
+        initStatePath = sys.argv[7]
         initStatesFile = initStatePath + "sol0D_states.txt"
         initVarsFile = initStatePath + "sol0D_variables.txt"
     else:
@@ -123,6 +140,7 @@ def run1DBFmod(AICstate=[], QICstate=[]):
     pipe_1d_0d_info = {}
     DATA_LENGTH = 0
     tolTime_coupler = None
+    tSaveIni_coupler = None
     tEndGlob_coupler = None
     if is_coupled:
         with open(inputFold+networkName+'_coupler1d0d.json', "r") as file:
@@ -144,8 +162,8 @@ def run1DBFmod(AICstate=[], QICstate=[]):
         # as we have introduced dedicated messages to transfer time level and time step
 
         # check that the coupler (and so the 0d solver) agrees on the coupling layout,
-        # and get the time tolerance and the end time shared by the coupler and the 0d solver
-        tolTime_coupler, tEndGlob_coupler = cpl.handshake(N1d0d, couple_volume_sum, T0, nCC)
+        # and get the time tolerance, the save time and the end time shared by the coupler and the 0d solver
+        tolTime_coupler, tSaveIni_coupler, tEndGlob_coupler = cpl.handshake(N1d0d, couple_volume_sum, T0, pre_time, sim_time)
 
 
     # [units conversion factors]
@@ -211,6 +229,10 @@ def run1DBFmod(AICstate=[], QICstate=[]):
         # coupled run: use the end time of the coupler and the 0d solver (coupling_end_time() in
         # coupler_mpi_common.h), received in the handshake, so that all three stop at the same time step
         tEndGlob = tEndGlob_coupler
+        if config.has_option('discretization', 'tEnd') and \
+                not abs(config.getfloat('discretization', 'tEnd') - tEndGlob) <= tolTime:
+            print(f"1d solver :: WARNING: tEnd {config.getfloat('discretization', 'tEnd')} in {init_file} is ignored "
+                  f"in a coupled run, using the coupler's end time {tEndGlob} (pre_time + sim_time)")
     else:
         # standalone run: nCC cardiac cycles, or the tEnd of input.ini if nCC <= 0
         if nCC>0:
@@ -220,6 +242,13 @@ def run1DBFmod(AICstate=[], QICstate=[]):
             nCC = int(tEndGlob/T0)
         tEndGlob = mpicpl.round_time(tEndGlob, invTolTime)
     dtSample = config.getfloat('discretization', 'dtSample', fallback=0.001)
+    if is_coupled:
+        # pre_time and sim_time must be multiples of the output time step, as in the 0d solver, so that the
+        # results are saved exactly from pre_time to the end time (the time steps are shortened to reach them)
+        for t in (pre_time, sim_time):
+            if not abs(t - round(t/dtSample)*dtSample) <= tolTime:
+                cpl.abort(f"1d solver :: ERROR: pre_time = {pre_time} and sim_time = {sim_time} must be multiples "
+                          f"of the output time step dtSample = {dtSample} in {init_file}")
     tEnd = dtSample
     
 
@@ -229,6 +258,10 @@ def run1DBFmod(AICstate=[], QICstate=[]):
     print('nCells : ', nCells)
     print('NMAX : ', NMAX)
     print('T0 : ', T0)
+    if is_coupled:
+        print('pre_time : ', pre_time)
+        print('sim_time : ', sim_time)
+        print('number of cardiac cycles (pre_time + sim_time)/T0 : ', nCC)
     print('tIni : ', tIni)
     print('tEndGlob : ', tEndGlob)
     print('dtSample : ', dtSample)
@@ -237,7 +270,14 @@ def run1DBFmod(AICstate=[], QICstate=[]):
     saveResTime = 0
     tSaveIni = config.getfloat('results', 'tSaveIni', fallback=0.)
     tSaveEnd = config.getfloat('results', 'tSaveEnd', fallback=1000.)
-    if tSaveIni<0.:
+    if is_coupled:
+        # coupled run: save the results from the save time of the coupler and the 0d solver (pre_time,
+        # coupling_save_time() in coupler_mpi_common.h), received in the handshake
+        if tSaveIni>=0. and not abs(tSaveIni - tSaveIni_coupler) <= tolTime:
+            print(f"1d solver :: WARNING: tSaveIni {tSaveIni} in {init_file} is ignored in a coupled run, "
+                  f"using the coupler's save time {tSaveIni_coupler} (pre_time)")
+        tSaveIni = tSaveIni_coupler
+    elif tSaveIni<0.:
         tSaveIni = np.maximum(0.0, (nCC-2)*T0)
     if tSaveEnd<0.:
         tSaveEnd = tEndGlob
@@ -1404,7 +1444,7 @@ def run1DBFmod(AICstate=[], QICstate=[]):
             # STORE SOLUTION IN TIME & SPACE
             if saveResTime:
                 # if (time>=tSaveIni and time<=tSaveEnd):
-                if time>=tSaveIni:
+                if time>=tSaveIni-tolTime: # same test as the 0d solver
                     for i in range(nVess):
                         v[i].outputResults(time)
                         if saveResSpace:

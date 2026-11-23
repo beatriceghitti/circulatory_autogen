@@ -5,8 +5,8 @@
 //
 // The three programs are started together by a single mpirun (MPMD launch), i.e. on one line:
 //   mpirun -np 1 ./coupler <coupler_config.json>
-//        : -np 1 <path>/main0d -coupled 1 -ODEsolver ... -T0 ... -nCC ... -networkName ... -initStatePath ...
-//        : -np 1 <python> <path>/main1D.py 1 <ODEsolver> <T0> <nCC> <input.ini> <initStatePath>
+//        : -np 1 <path>/main0d -coupled 1 -ODEsolver ... -T0 ... -preTime ... -simTime ... -networkName ... -initStatePath ...
+//        : -np 1 <python> <path>/main1D.py 1 <ODEsolver> <T0> <pre_time> <sim_time> <input.ini> <initStatePath>
 // src/coupler/launch_coupled_mpi.bash builds this command from the coupler configuration file.
 //
 // Message protocol (see coupler_mpi_common.h):
@@ -25,7 +25,7 @@
 //   The coupler checks all the times and time steps it relays (see "Time synchronisation" in coupler_mpi_common.h).
 //               (if volume sum) 1d -> coupler -> 0d : TAG_VOL
 //   [end]       0d -> coupler, 1d -> coupler : TAG_DONE
-//               The 0d solver must reach the end time nCC*T0 first: if it stops before, the 1d solver is
+//               The 0d solver must reach the end time pre_time + sim_time first: if it stops before, the 1d solver is
 //               still waiting for the next time step, so the coupler aborts the job instead of waiting.
 
 #include <iostream>
@@ -54,9 +54,12 @@ private:
     std::string inputFold;
     std::string networkName;
     std::string ODEsolver;
-    double T0 = 0.0;
-    int nCC = 0;
-    double tEnd = 0.0; // end time of the coupled simulation, coupling_end_time(T0, nCC)
+    // Time settings of the configuration file (see coupling_end_time() in coupler_mpi_common.h)
+    double T0 = 0.0;       // cardiac period: parameter T of the model
+    double pre_time = 0.0; // time simulated to reach a periodic steady state (results are not saved)
+    double sim_time = 0.0; // time simulated after pre_time, with the results saved
+    double tSave = 0.0;    // save time of the coupled simulation, coupling_save_time(pre_time)
+    double tEnd = 0.0;     // end time of the coupled simulation, coupling_end_time(pre_time, sim_time)
 
     size_t N1d0dTot = 0;
     size_t N1d0d = 0;
@@ -141,22 +144,39 @@ public:
         inputFold = config.value("inputFold", "./../CA_files/generated_models/aortic_bif_hybrid/");
         networkName = config.value("networkName", "aortic_bif_hybrid");
         ODEsolver = config.value("ODEsolver", "CVODE");
-        T0 = config.value("T0", 1.1);
-        nCC = config.value("nCC", 5);
-        // Checked here, before the handshake: with nCC <= 0 the 0d solver would stop at once, while the
-        // 1d solver would run until the tEnd of its input.ini.
-        if (!(T0 > 0.0) || nCC < 1) {
+        // Time settings, written by the generator (CVSCppGenerator.py): T0 is the parameter T of the model,
+        // pre_time and sim_time come from the user inputs (yaml file). They are required (no default values).
+        auto required_number = [&](const char* key) {
+            if (!config.contains(key) || !config[key].is_number()) {
+                throw std::runtime_error(std::string("Coupler1d0d::init() : '") + key + "' (a number) is missing in "
+                                         + initFilePath + ": regenerate the model");
+            }
+            return config[key].get<double>();
+        };
+        T0 = required_number("T0");
+        pre_time = required_number("pre_time");
+        sim_time = required_number("sim_time");
+        // Checked here, before the handshake, so that both solvers get a valid time window.
+        if (!(std::isfinite(T0) && T0 > 0.0) || !(std::isfinite(pre_time) && pre_time >= 0.0)
+            || !(std::isfinite(sim_time) && sim_time > 0.0)) {
             std::ostringstream msg;
-            msg << "Coupler1d0d::init() : T0 must be > 0 and nCC >= 1 in " << initFilePath
-                << " (T0 = " << T0 << ", nCC = " << nCC << " given)";
+            msg << std::setprecision(17) << "Coupler1d0d::init() : T0 > 0, pre_time >= 0 and sim_time > 0 are required in "
+                << initFilePath << " (T0 = " << T0 << ", pre_time = " << pre_time << ", sim_time = " << sim_time << " given)";
             throw std::runtime_error(msg.str());
         }
-        tEnd = coupling_end_time(T0, nCC);
+        tSave = coupling_save_time(pre_time);
+        tEnd = coupling_end_time(pre_time, sim_time);
+        if (!(tEnd > tSave)) {
+            std::ostringstream msg;
+            msg << std::setprecision(17) << "Coupler1d0d::init() : sim_time = " << sim_time << " in " << initFilePath
+                << " is shorter than the time tolerance " << tolTime;
+            throw std::runtime_error(msg.str());
+        }
         // Rounding times to multiples of tolTime only works while tolTime is larger than the spacing of
         // double precision numbers around the end time (tolTime/epsilon: about 45000 s for 1e-11).
         if (tEnd*std::numeric_limits<double>::epsilon() >= tolTime) {
             std::ostringstream msg;
-            msg << "Coupler1d0d::init() : the end time nCC*T0 = " << tEnd << " is too large for the time tolerance "
+            msg << "Coupler1d0d::init() : the end time pre_time + sim_time = " << tEnd << " is too large for the time tolerance "
                 << tolTime << " (it must be < " << tolTime/std::numeric_limits<double>::epsilon()
                 << "): increase COUPLING_TOL_TIME in coupler_mpi_common.h";
             throw std::runtime_error(msg.str());
@@ -186,8 +206,10 @@ public:
                 N1d0d++;
             }
         }
-        std::cout << "Coupler1d0d :: ODE solver : " << ODEsolver << " || T0 : " << T0 << " || nCC : " << nCC
-                  << " || end time : " << tEnd << std::endl;
+        std::cout << "Coupler1d0d :: ODE solver : " << ODEsolver << " || T0 : " << T0 << " || pre_time : " << pre_time
+                  << " || sim_time : " << sim_time << std::endl;
+        std::cout << "Coupler1d0d :: results saved from time " << tSave << " || end time : " << tEnd
+                  << " || number of cardiac cycles (pre_time + sim_time)/T0 : " << (pre_time + sim_time)/T0 << std::endl;
         std::cout << "Coupler1d0d :: MPI world ranks : 0d solver " << rank0d << " || 1d solver " << rank1d << std::endl;
         std::cout << "Number of one-to-one 1d-0d connections: " << N1d0d << std::endl;
         std::cout << "Total number of connections (including global connections): " << N1d0dTot << " || With time step connection: "  << N1d0dTot+1 << std::endl;
@@ -195,9 +217,13 @@ public:
 
     // Send the coupling layout to both solvers, which check it against their own and abort the MPI job on any mismatch.
     void handshake() {
-        // tolTime and tEnd: checked by the 0d solver, adopted by the 1d solver
-        // (see COUPLING_TOL_TIME and coupling_end_time() in coupler_mpi_common.h)
-        std::vector<double> cfg = {static_cast<double>(N1d0d), couple_volume_sum ? 1.0 : 0.0, T0, static_cast<double>(nCC), tolTime, tEnd};
+        // tolTime, tSave and tEnd: checked by the 0d solver, adopted by the 1d solver
+        // (see COUPLING_TOL_TIME, coupling_save_time() and coupling_end_time() in coupler_mpi_common.h)
+        std::vector<double> cfg = {static_cast<double>(N1d0d), couple_volume_sum ? 1.0 : 0.0, T0, pre_time, sim_time,
+                                   tolTime, tSave, tEnd};
+        if (cfg.size() != COUPLING_CONFIG_LENGTH) {
+            throw std::runtime_error("Coupler1d0d::handshake() : the handshake message does not have COUPLING_CONFIG_LENGTH values");
+        }
         send(cfg, rank0d, TAG_CONFIG);
         send(cfg, rank1d, TAG_CONFIG);
     }
@@ -247,7 +273,7 @@ public:
                         std::ostringstream msg;
                         msg << std::setprecision(12) << "the 0d solver stopped at time " << time0d
                             << " (global time " << timeGlobEnd << "), before the end time " << tEnd
-                            << " (nCC*T0 = " << nCC << "*" << T0 << ")";
+                            << " (pre_time + sim_time = " << pre_time << " + " << sim_time << ")";
                         throw std::runtime_error(msg.str());
                     }
                     std::cout << "Coupler1d0d :: 0d solver has completed the simulation" << std::endl;

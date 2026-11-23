@@ -22,7 +22,8 @@ import numpy as np
 COLOR_COUPLER, COLOR_SOLVER0D, COLOR_SOLVER1D = 0, 1, 2
 TAG_CONFIG, TAG_DONE, TAG_DT, TAG_DT_STEP, TAG_DATA, TAG_VOL = 1, 2, 10, 11, 20, 30
 DATA_LENGTH = 2     # doubles per time/time step message and per 1d-0d connection
-CONFIG_LENGTH = 6   # doubles in the TAG_CONFIG handshake: {N1d0d, couple_volume_sum, T0, nCC, tolTime, tEnd}
+CONFIG_LENGTH = 8   # doubles in the TAG_CONFIG handshake:
+                    # {N1d0d, couple_volume_sum, T0, pre_time, sim_time, tolTime, tSave, tEnd}
 
 # The coupling currently in use (if any), so that errors can abort the whole MPI job.
 _active_coupling = None
@@ -78,12 +79,13 @@ class MPICoupling1D:
         self.N1d0d = 0
         print(f"1d solver :: MPI coupling initialised, coupler is world rank {self.coupler}", flush=True)
 
-    def handshake(self, N1d0d, couple_volume_sum, T0, nCC):
+    def handshake(self, N1d0d, couple_volume_sum, T0, pre_time, sim_time):
         """
         Receive the coupling layout from the coupler and check that it matches ours.
 
-        Returns the time tolerance and the end time of the coupled simulation (COUPLING_TOL_TIME and
-        coupling_end_time() in coupler_mpi_common.h), which the 1d solver must use in a coupled run.
+        Returns the time tolerance, the save time and the end time of the coupled simulation (COUPLING_TOL_TIME,
+        coupling_save_time() and coupling_end_time() in coupler_mpi_common.h), which the 1d solver must use
+        in a coupled run.
         """
         # First check the length: with a coupler built from another version of coupler_mpi_common.h,
         # the missing values of cfg would be left uninitialised (or MPI would report a truncation error).
@@ -95,19 +97,21 @@ class MPICoupling1D:
                        "the coupler and this 1d solver come from different versions (rebuild the coupler)")
         cfg = np.empty(CONFIG_LENGTH, dtype=np.float64)
         self.world.Recv(cfg, source=self.coupler, tag=TAG_CONFIG)
-        mine = np.array([N1d0d, 1.0 if couple_volume_sum else 0.0, T0, nCC], dtype=np.float64)
-        if not np.allclose(cfg[:4], mine, rtol=1e-12, atol=0.0):
+        mine = np.array([N1d0d, 1.0 if couple_volume_sum else 0.0, T0, pre_time, sim_time], dtype=np.float64)
+        if not np.allclose(cfg[:5], mine, rtol=1e-12, atol=0.0):
             self.abort("1d solver :: Error: coupling mismatch with the coupler "
-                       f"[N1d0d, couple_volume_sum, T0, nCC]: coupler {cfg[:4].tolist()} vs 1d solver {mine.tolist()}")
-        tolTime = float(cfg[4])
+                       f"[N1d0d, couple_volume_sum, T0, pre_time, sim_time]: coupler {cfg[:5].tolist()} "
+                       f"vs 1d solver {mine.tolist()}")
+        tolTime = float(cfg[5])
         if not tolTime > 0.0:
             self.abort(f"1d solver :: Error: invalid time tolerance from the coupler: {tolTime}")
-        tEnd = float(cfg[5])
-        # the coupler rounds nCC*T0 to a multiple of tolTime (this also rejects NaN)
-        if not abs(tEnd - nCC*T0) <= tolTime:
-            self.abort(f"1d solver :: Error: invalid end time from the coupler: {tEnd} (nCC*T0 = {nCC*T0})")
+        tSave, tEnd = float(cfg[6]), float(cfg[7])
+        # the coupler rounds pre_time and pre_time + sim_time to multiples of tolTime (this also rejects NaN)
+        if not (abs(tSave - pre_time) <= tolTime and abs(tEnd - (pre_time + sim_time)) <= tolTime and tEnd > tSave):
+            self.abort(f"1d solver :: Error: invalid save time {tSave} or end time {tEnd} from the coupler "
+                       f"(pre_time = {pre_time}, pre_time + sim_time = {pre_time + sim_time})")
         self.N1d0d = int(N1d0d)
-        return tolTime, tEnd
+        return tolTime, tSave, tEnd
 
     def recv_step_dt(self):
         """Receive {time, time step} proposed by the 0d solver at the start of a global time step."""

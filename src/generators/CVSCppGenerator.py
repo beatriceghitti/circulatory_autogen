@@ -40,6 +40,91 @@ TOL_TIME = 1e-11 # 1e-13; time tolerance of fully 0d models only (coupled models
 REL_TOL = 1e-7
 ABS_TOL = 1e-9
 
+
+def get_time_window(pre_time, sim_time, dt): # OK
+    '''
+    Time window of a cpp model, from pre_time and sim_time of the user inputs (yaml file), as for the other model
+    types: the model runs from 0 to pre_time + sim_time, and its results are saved from pre_time (every dt).
+    pre_time and sim_time must be multiples of dt (the output time step), so that the first output time is
+    pre_time and the last one is pre_time + sim_time.
+    Returns pre_time and sim_time as floats; exits with an error if they are not valid.
+    In a coupled 1d-0d model, they are written in the coupler configuration file (coupler_config.json), from which
+    the coupler, the 0d solver and the 1d solver all take them (see coupling_end_time() in coupler_mpi_common.h).
+    '''
+    def to_float(name, value):
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            print(f"get_time_window :: ERROR: {name} = {value!r} in the user inputs: cpp models need a number "
+                  "(they run from 0 to pre_time + sim_time, and save their results from pre_time)")
+            exit(1)
+        return value
+    
+    pre_time = to_float('pre_time', pre_time)
+    sim_time = to_float('sim_time', sim_time)
+    dt = to_float('dt', dt)
+    
+    if not (np.isfinite(pre_time) and pre_time >= 0.0):
+        print(f"get_time_window :: WARNING: pre_time >= 0 is required in the user inputs, setting pre_time = 20.0 "
+              f"(pre_time = {pre_time} given)")
+        pre_time = 20.0
+
+    if not (np.isfinite(sim_time) and sim_time > 0.0):
+        print(f"get_time_window :: WARNING: sim_time > 0 is required in the user inputs, setting sim_time = 2.0 "
+                f"(sim_time = {sim_time} given)")
+        sim_time = 2.0
+    
+    if not (np.isfinite(dt) and dt > 0.0):
+        print(f"get_time_window :: WARNING: dt (sampling time step) must be > 0 in the user inputs, setting dt = 1e-3 "
+                f"(dt = {dt} given)")
+        dt = 1e-3
+    
+    # for name, value in (('pre_time', pre_time), ('sim_time', sim_time)):
+    #     if not abs(value - round(value/dt)*dt) <= TOL_TIME:
+    #         print(f"get_time_window :: ERROR: {name} = {value} must be a multiple of dt = {dt} (sampling time step) "
+    #               "in the user inputs, so that the results are saved exactly from pre_time to pre_time + sim_time")
+    #         exit(1)
+    if not abs(pre_time - round(pre_time/dt)*dt) <= TOL_TIME:
+        pre_time = round(pre_time/dt)*dt
+    if not abs(sim_time - round(sim_time/dt)*dt) <= TOL_TIME:
+        sim_time = round(sim_time/dt)*dt
+    
+    return pre_time, sim_time, dt
+
+
+def get_cardiac_period(parameters_csv_abs_path): # OK
+    '''
+    Cardiac period T0 of a coupled 1d-0d model: the parameter T (in second) of the parameters csv file, read once at
+    generation, so that the 0d model (where T is a constant) and the 1d solver use the same value. The 1d solver uses
+    it as the period of its prescribed boundary conditions (e.g. the inflow): it is written in the coupler
+    configuration file (coupler_config.json) and in the 1d input file (input.ini).
+    It does not set the time window of the simulation (see get_time_window()): the number of cardiac cycles
+    simulated is (pre_time + sim_time)/T0.
+    Exits with an error if T is missing or not valid.
+    '''
+    def error(message):
+        print(f"get_cardiac_period :: ERROR: {message}")
+        exit(1)
+    params_df = pd.read_csv(parameters_csv_abs_path, dtype=str, na_filter=False, skipinitialspace=True)
+    params_df = params_df.rename(columns=lambda x: x.strip())
+    rows = params_df[params_df['variable_name'].str.strip() == 'T']
+    if len(rows) == 0:
+        error(f"the parameter T (cardiac period, in second) is missing in {parameters_csv_abs_path}: "
+              "a coupled 1d-0d model needs it for the 1d solver")
+    if len(rows) > 1:
+        error(f"the parameter T is defined {len(rows)} times in {parameters_csv_abs_path}")
+    units = rows['units'].iloc[0].strip()
+    if units != 'second':
+        error(f"the parameter T (cardiac period) must be in second, not {units}, in {parameters_csv_abs_path}")
+    try:
+        T0 = float(rows['value'].iloc[0])
+    except ValueError:
+        T0 = np.nan
+    if not (np.isfinite(T0) and T0 > 0.0):
+        error(f"the parameter T (cardiac period) must be a number > 0, not {rows['value'].iloc[0]!r}, "
+              f"in {parameters_csv_abs_path}")
+    return T0
+
 # A line of libCellML's C code that computes a variable: "    variables[k] = ...;" (not a comparison "==").
 VARIABLE_LINE_PATTERN = re.compile(r"^\s*variables\[\d+\]\s*=(?!=)")
 
@@ -309,6 +394,7 @@ class CVS0DCppGenerator(object):
 
     def __init__(self, model, generated_model_subdir, file_prefix, resources_dir=None, 
                  solver='CVODE', dtSample=1e-3, dtSolver=1e-4, nMaxSteps=5000,
+                 pre_time=None, sim_time=None, T0=None,
                  couple_to_1d=False, cpp_generated_models_dir=None,
                  model_1d_config_path=None, create_main_0d=False,
                  conn_1d_0d_info=None, DEBUG=False):
@@ -373,6 +459,14 @@ class CVS0DCppGenerator(object):
         self.dtSample = dtSample
         self.dtSolver = dtSolver
         self.nMaxSteps = nMaxSteps
+        # time window (pre_time and sim_time of the user inputs, see get_time_window()) and, for a coupled model,
+        # cardiac period (parameter T, see get_cardiac_period())
+        self.pre_time, self.sim_time, self.dtSample = get_time_window(pre_time, sim_time, dtSample)
+        self.T0 = T0
+        if self.couple_to_1d and not (T0 is not None and np.isfinite(T0) and T0 > 0.0):
+            print(f"CVS0DCppGenerator __init__ :: ERROR: a coupled 1d-0d model needs the cardiac period T0 > 0 "
+                  f"(parameter T, see get_cardiac_period()), not {T0}")
+            exit(1)
 
         # these are for delayed variables
         self.variables_to_delay = []
@@ -1766,7 +1860,7 @@ public:
             otherHeaderInits += """
     // MPI coupling with the 1d solver, through the coupler (see coupler_mpi_common.h)
     int coupler_rank; // world rank of the coupler
-    int initCoupling(int couplerRank, double T0, int nCC);
+    int initCoupling(int couplerRank, double T0, double pre_time, double sim_time);
     void finaliseCoupling();
 
     int DATA_LENGTH;
@@ -3804,13 +3898,14 @@ int main(int argc, char* argv[]){
 """
 
         mainScript += f"""
-    double T = 1.0; // default period in seconds, change this.
-    double end_time = 20.*T;
-    double save_time = 17.*T;
-    double dt = {self.dtSolver};
-    double eps = 1e-12;
+    // Time window of the user inputs (yaml file), as for the other model types: the model runs from 0 to
+    // pre_time + sim_time, and its results are saved every dtSample (dt of the user inputs) from pre_time.
+    const double pre_time = {self.pre_time!r};
+    const double sim_time = {self.sim_time!r};
+    const double dtSample = {self.dtSample!r}; // output time step
+    double dt = {self.dtSolver}; // solver time step
     std::string ODEsolver = \"{self.solver}\";
-    
+
     Model0d model0d_inst;
     model0d_inst.set_ode_solver(ODEsolver);
     std::string resFold = \"./simulation_outputs_cpp/\";
@@ -3824,20 +3919,32 @@ int main(int argc, char* argv[]){
     model0d_inst.initBuffers(dt);
     """
         mainScript += """
-    
-    if (model0d_inst.voi>=save_time-eps){
+    // all the times are rounded to the grid of tolTime, as the time of the model (see roundTime())
+    const double tolTime = model0d_inst.tolTime;
+    const double save_time = model0d_inst.roundTime(pre_time);
+    const double end_time = model0d_inst.roundTime(pre_time + sim_time);
+    double next_output_time = model0d_inst.roundTime(dtSample);
+    std::cout << "Simulating from 0 to " << end_time << " s, saving the results every " << dtSample
+              << " s from " << save_time << " s" << std::endl;
+
+    if (model0d_inst.voi >= save_time-tolTime){
         model0d_inst.writeOutput(model0d_inst.voi);
     }
 
-    while (model0d_inst.voi < end_time-eps) {
-        model0d_inst.solveOneStep(dt);
-        
-        if (model0d_inst.voi>=save_time-eps){
-            model0d_inst.writeOutput(model0d_inst.voi);
+    while (model0d_inst.voi < end_time-tolTime) {
+        // solver time step, shortened to reach the next output time exactly
+        double dtLoc = dt;
+        if (model0d_inst.voi+dtLoc > next_output_time) {
+            dtLoc = next_output_time-model0d_inst.voi;
         }
+        model0d_inst.solveOneStep(dtLoc);
 
-        std::cout << "time: " << model0d_inst.voi << " states[0]: " << model0d_inst.states[0] << std::endl;
-        // std::cout << "time: " << model0d_inst.voi << " V_delay: " << model0d_inst.variables[2] << std::endl;
+        if (model0d_inst.voi >= next_output_time-tolTime) {
+            next_output_time = model0d_inst.roundTime(next_output_time+dtSample);
+            if (model0d_inst.voi >= save_time-tolTime){
+                model0d_inst.writeOutput(model0d_inst.voi);
+            }
+        }
     }
     model0d_inst.closeOutputFiles();
 
@@ -3928,8 +4035,11 @@ int main(int argc, char* argv[]){
             mainScript = """
 """
             
-            # T0 = -1.0
-            # nCC = -1
+            # values of the user inputs at generation, used when main0d runs without the coupler
+            # (in a coupled run, main0d gets them from the coupler configuration file instead)
+            values_at_generation = {'ODEsolver': f'"{self.solver}"', 'T0': repr(self.T0),
+                                    'pre_time': repr(self.pre_time), 'sim_time': repr(self.sim_time),
+                                    'modelName': f'"{self.file_prefix}"'}
             for line in lines:
                 if self.solver == 'PETSC':
                     if '// #include <petscsys.h>' in line:
@@ -3958,16 +4068,15 @@ int main(int argc, char* argv[]){
                     results0d_folder_tmp = "./"
                     line = line.replace(f"std::string resFold = \"{results0d_folder_tmp}\";", f"std::string resFold = \"{results0d_folder}\";")
                 
-                # if 'ODEsolver = "' in line:
-                # if 'T0 = ' in line:
-                # if 'nCC = ' in line:
-                # if 'modelName = "' in line:
-
-                if 'const double tSaveRes = ' in line:
+                if '// set at generation' in line:
+                    name = line.split("=")[0].strip()
+                    if name not in values_at_generation:
+                        print(f"generate_cpp :: ERROR: unknown value '{name}' set at generation in main0dTemplate.cpp")
+                        exit(1)
                     idx0 = line.find("=")
                     idx1 = line.find(";")
-                    line = line.replace(line[idx0:idx1+1], f"= ((nCC-2)*T0 > 0.0) ? (nCC-2)*T0 : 0.0;")
-                
+                    line = line.replace(line[idx0:idx1+1], f"= {values_at_generation.pop(name)};")
+
                 if 'const double dtSample = ' in line:
                     idx0 = line.find("=")
                     idx1 = line.find(";")
@@ -3985,6 +4094,10 @@ int main(int argc, char* argv[]){
                 #         line = line.replace("solveOneStep(", "solveOneStepExpl(")
                 
                 mainScript += line # + '\n'
+
+            if values_at_generation:
+                print(f"generate_cpp :: ERROR: values {list(values_at_generation)} not found in main0dTemplate.cpp")
+                exit(1)
             
             # save main to file    
             with open(os.path.join(self.cpp_generated_models_dir, 'main0d.cpp'), 'w') as f:
@@ -4078,8 +4191,11 @@ int main(int argc, char* argv[]){
             coupler_config['inputFold'] = self.cpp_generated_models_dir+'/'
             coupler_config['networkName'] = self.file_prefix
             coupler_config['ODEsolver'] = self.solver
-            coupler_config['T0'] = 1.0 #XXX DEFAULT, THIS SHOULD BE READ FROM MODEL CONFIG/INPUT FILES
-            coupler_config['nCC'] = 3 #XXX DEFAULT, THIS SHOULD BE READ FROM MODEL CONFIG/INPUT FILES
+            # time settings: cardiac period (parameter T of the model) and time window (pre_time and sim_time of the
+            # user inputs), used by the coupler and both solvers (see coupling_end_time() in coupler_mpi_common.h)
+            coupler_config['T0'] = self.T0
+            coupler_config['pre_time'] = self.pre_time
+            coupler_config['sim_time'] = self.sim_time
             coupler_config['solver0d_path'] = self.cpp_generated_models_dir+'/main0d'
             # coupler_config['python_path'] = '/home/bghi639/anaconda3/bin/python'
             # coupler_config['python_path'] = '/home/bghi639/Software/OpenCOR-0-8-3-Linux/python'
@@ -4105,9 +4221,12 @@ class CVS1DPythonGenerator(object):
 
     def __init__(self, model, file_prefix, vessels1d_csv_abs_path, parameters_csv_abs_path,
                 model_1d_config_path, generated_model_subdir, cpp_generated_models_dir=None,
-                solver='CVODE', dtSample=1e-3, dtSolver=1e-4, conn_1d_0d_info=None):
+                solver='CVODE', dtSample=1e-3, dtSolver=1e-4, pre_time=None, sim_time=None, T0=None,
+                conn_1d_0d_info=None):
         '''
         Constructor
+        pre_time, sim_time: time window of the user inputs (see get_time_window())
+        T0: cardiac period, parameter T of the model (see get_cardiac_period())
         '''
 
         self.model = model
@@ -4133,6 +4252,12 @@ class CVS1DPythonGenerator(object):
         self.ODEsolver = solver
         self.dtSample = dtSample
         self.dtSolver = dtSolver
+        self.pre_time, self.sim_time, self.dtSample = get_time_window(pre_time, sim_time, dtSample)
+        if not (T0 is not None and np.isfinite(T0) and T0 > 0.0):
+            print(f"CVS1DPythonGenerator __init__ :: ERROR: the 1d solver needs the cardiac period T0 > 0 "
+                  f"(parameter T, see get_cardiac_period()), not {T0}")
+            exit(1)
+        self.T0 = T0
         self.conn_1d_0d_info = conn_1d_0d_info
 
         self.generated_model_subdir = generated_model_subdir
@@ -4165,7 +4290,8 @@ class CVS1DPythonGenerator(object):
             if "port_volume_sum" in self.conn_1d_0d_info[str(i+1)]:
                 if self.conn_1d_0d_info[str(i+1)]["port_volume_sum"]==1:
                     computeTotBV = True
-        generate1DPythonSimInitFile(self.params_df, vess1d, nodes1d, self.initFile1d, self.file_prefix, self.run1dFold, self.ODEsolver, self.dtSample, computeTotBV)
+        generate1DPythonSimInitFile(self.params_df, vess1d, nodes1d, self.initFile1d, self.file_prefix, self.run1dFold, self.ODEsolver, self.dtSample, computeTotBV,
+                                    self.T0, self.pre_time, self.sim_time)
 
 
         if self.file_prefix.endswith("_1d"):
