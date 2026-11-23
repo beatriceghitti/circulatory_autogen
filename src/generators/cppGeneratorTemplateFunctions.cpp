@@ -294,14 +294,35 @@ int Model0d::initCoupling(int couplerRank, double T0, double pre_time, double si
     }
     double cfg[COUPLING_CONFIG_LENGTH];
     MPI_Recv(cfg, COUPLING_CONFIG_LENGTH, MPI_DOUBLE, coupler_rank, TAG_CONFIG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    // PETSc time integration scheme this main0d was built with (#define SOLVER_<scheme> above, set at generation)
+#if defined(SOLVER_CN)
+    const int petscScheme = PETSC_SCHEME_CN;
+#elif defined(SOLVER_BDF1)
+    const int petscScheme = PETSC_SCHEME_BDF1;
+#elif defined(SOLVER_BDF2)
+    const int petscScheme = PETSC_SCHEME_BDF2;
+#else
+    const int petscScheme = PETSC_SCHEME_NONE; // not built with the PETSc ODE solver
+#endif
     const double mine[COUPLING_CONFIG_LENGTH] = {static_cast<double>(N1d0d), static_cast<double>(couple_volume_sum), T0, pre_time, sim_time,
-                                                 tolTime, coupling_save_time(pre_time), coupling_end_time(pre_time, sim_time)};
-    for (int j = 0; j < COUPLING_CONFIG_LENGTH; ++j) {
+                                                 tolTime, coupling_save_time(pre_time), coupling_end_time(pre_time, sim_time),
+                                                 static_cast<double>(petscScheme)};
+    // the PETSc scheme (last value) must be the same in the coupler configuration file, in this main0d and in the 1d solver
+    const int schemeCoupler = static_cast<int>(cfg[COUPLING_CONFIG_LENGTH-1]);
+    if (schemeCoupler != petscScheme) {
+        std::cerr << "0d solver :: ERROR: PETSc scheme mismatch: the coupler configuration file uses "
+                  << coupling_petsc_scheme_name(schemeCoupler) << ", but this main0d was built with "
+                  << coupling_petsc_scheme_name(petscScheme) << ": regenerate the model, so that the coupler configuration"
+                  << " file (ODEsolver, PETSc_solver), the 0d solver and the 1d solver (PETSc_solver in input.ini)"
+                  << " use the same scheme (petsc_solver in solver_info of the user inputs)" << std::endl;
+        return 1;
+    }
+    for (int j = 0; j < COUPLING_CONFIG_LENGTH-1; ++j) {
         if (std::abs(cfg[j]-mine[j]) > 1e-12*std::abs(mine[j])) {
             std::cerr << "0d solver :: Error: coupling mismatch with the coupler [N1d0d, couple_volume_sum, T0, pre_time, sim_time, tolTime, tSave, tEnd]: coupler {";
-            for (int k = 0; k < COUPLING_CONFIG_LENGTH; ++k) std::cerr << (k ? ", " : "") << cfg[k];
+            for (int k = 0; k < COUPLING_CONFIG_LENGTH-1; ++k) std::cerr << (k ? ", " : "") << cfg[k];
             std::cerr << "} vs 0d solver {";
-            for (int k = 0; k < COUPLING_CONFIG_LENGTH; ++k) std::cerr << (k ? ", " : "") << mine[k];
+            for (int k = 0; k < COUPLING_CONFIG_LENGTH-1; ++k) std::cerr << (k ? ", " : "") << mine[k];
             std::cerr << "}" << std::endl;
             return 1;
         }

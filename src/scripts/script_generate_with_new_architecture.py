@@ -16,7 +16,7 @@ user_inputs_dir= os.path.join(root_dir, 'user_run_files')
 
 from parsers.ModelParsers import CSV0DModelParser
 from generators.CVSCellMLGenerator import CVS0DCellMLGenerator
-from generators.CVSCppGenerator import CVS0DCppGenerator, CVS1DPythonGenerator, get_cardiac_period
+from generators.CVSCppGenerator import CVS0DCppGenerator, CVS1DPythonGenerator, get_cardiac_period, get_petsc_solver
 from generators.PythonGenerator import PythonGenerator
 from parsers.PrimitiveParsers import YamlFileParser
 
@@ -74,6 +74,9 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
         dtSample = inp_data_dict['dt']
         dtSolver = solver_info['dt_solver']
         nMaxSteps = solver_info['MaximumNumberOfSteps']
+        # PETSc time integration scheme (with the PETSc solver): petsc_solver in solver_info, by default CN for a
+        # coupled 1d-0d model and BDF2 for a fully 0d model (see get_petsc_solver())
+        petsc_solver = get_petsc_solver(solver_info.get('petsc_solver'), inp_data_dict['couple_to_1d'])
         # time window: the cpp model runs from 0 to pre_time + sim_time and saves its results from pre_time
         # (checked by get_time_window() in the generators)
         pre_time = inp_data_dict['pre_time']
@@ -116,7 +119,7 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
             code_generator = CVS0DCppGenerator(model, generated_models_subdir, file_prefix, #XXX
                                             resources_dir=resources_dir, solver=solver_cpp, 
                                             dtSample=dtSample, dtSolver=dtSolver, nMaxSteps=nMaxSteps,
-                                            pre_time=pre_time, sim_time=sim_time, T0=T0,
+                                            pre_time=pre_time, sim_time=sim_time, T0=T0, petsc_solver=petsc_solver,
                                             couple_to_1d=inp_data_dict['couple_to_1d'],
                                             cpp_generated_models_dir=cpp_generated_models_dir,
                                             model_1d_config_path=model_1d_config_path,
@@ -136,7 +139,7 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
                                                         model_1d_config_path, generated_models_subdir, 
                                                         cpp_generated_models_dir=cpp_generated_models_dir,
                                                         solver=solver_cpp, dtSample=dtSample, dtSolver=dtSolver, 
-                                                        pre_time=pre_time, sim_time=sim_time, T0=T0,
+                                                        pre_time=pre_time, sim_time=sim_time, T0=T0, petsc_solver=petsc_solver,
                                                         conn_1d_0d_info=parser.conn_1d_0d_info)
                     elif inp_data_dict['solver_1d_type'].startswith('cpp'):
                         #XXX This would use the class CVS1DCppGenerator() that Finbar was working on.
@@ -154,7 +157,7 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
             code_generator = CVS0DCppGenerator(model, generated_models_subdir, file_prefix,
                                             resources_dir=resources_dir, solver=solver_cpp,
                                             dtSample=dtSample, dtSolver=dtSolver, nMaxSteps=nMaxSteps,
-                                            pre_time=pre_time, sim_time=sim_time)
+                                            pre_time=pre_time, sim_time=sim_time, petsc_solver=petsc_solver)
             if DEBUG:
                 print("Check point 2B")
 

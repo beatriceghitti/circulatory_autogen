@@ -54,6 +54,8 @@ private:
     std::string inputFold;
     std::string networkName;
     std::string ODEsolver;
+    std::string petscSolver;                   // PETSc time integration scheme of both solvers (with ODEsolver PETSC)
+    int petscScheme = PETSC_SCHEME_NONE;       // its code, sent in the handshake (see CouplingPetscScheme)
     // Time settings of the configuration file (see coupling_end_time() in coupler_mpi_common.h)
     double T0 = 0.0;       // cardiac period: parameter T of the model
     double pre_time = 0.0; // time simulated to reach a periodic steady state (results are not saved)
@@ -144,6 +146,20 @@ public:
         inputFold = config.value("inputFold", "./../CA_files/generated_models/aortic_bif_hybrid/");
         networkName = config.value("networkName", "aortic_bif_hybrid");
         ODEsolver = config.value("ODEsolver", "CVODE");
+        // PETSc time integration scheme, written by the generator (petsc_solver in solver_info of the user inputs):
+        // required with the PETSc ODE solver, and checked by both solvers in the handshake (see CouplingPetscScheme)
+        petscSolver = "";
+        petscScheme = PETSC_SCHEME_NONE;
+        if (ODEsolver == "PETSC") {
+            if (config.contains("PETSc_solver") && config["PETSc_solver"].is_string()) {
+                petscSolver = config["PETSc_solver"].get<std::string>();
+            }
+            petscScheme = coupling_petsc_scheme_code(petscSolver);
+            if (petscScheme < 0) {
+                throw std::runtime_error("Coupler1d0d::init() : 'PETSc_solver' (CN, BDF1 or BDF2) is missing or not valid in "
+                                         + initFilePath + " (needed with ODEsolver PETSC): regenerate the model");
+            }
+        }
         // Time settings, written by the generator (CVSCppGenerator.py): T0 is the parameter T of the model,
         // pre_time and sim_time come from the user inputs (yaml file). They are required (no default values).
         auto required_number = [&](const char* key) {
@@ -206,7 +222,8 @@ public:
                 N1d0d++;
             }
         }
-        std::cout << "Coupler1d0d :: ODE solver : " << ODEsolver << " || T0 : " << T0 << " || pre_time : " << pre_time
+        std::cout << "Coupler1d0d :: ODE solver : " << ODEsolver << (petscSolver.empty() ? "" : " (" + petscSolver + ")")
+                  << " || T0 : " << T0 << " || pre_time : " << pre_time
                   << " || sim_time : " << sim_time << std::endl;
         std::cout << "Coupler1d0d :: results saved from time " << tSave << " || end time : " << tEnd
                   << " || number of cardiac cycles (pre_time + sim_time)/T0 : " << (pre_time + sim_time)/T0 << std::endl;
@@ -218,9 +235,10 @@ public:
     // Send the coupling layout to both solvers, which check it against their own and abort the MPI job on any mismatch.
     void handshake() {
         // tolTime, tSave and tEnd: checked by the 0d solver, adopted by the 1d solver
-        // (see COUPLING_TOL_TIME, coupling_save_time() and coupling_end_time() in coupler_mpi_common.h)
+        // (see COUPLING_TOL_TIME, coupling_save_time() and coupling_end_time() in coupler_mpi_common.h);
+        // petscScheme: checked by both solvers (see CouplingPetscScheme)
         std::vector<double> cfg = {static_cast<double>(N1d0d), couple_volume_sum ? 1.0 : 0.0, T0, pre_time, sim_time,
-                                   tolTime, tSave, tEnd};
+                                   tolTime, tSave, tEnd, static_cast<double>(petscScheme)};
         if (cfg.size() != COUPLING_CONFIG_LENGTH) {
             throw std::runtime_error("Coupler1d0d::handshake() : the handshake message does not have COUPLING_CONFIG_LENGTH values");
         }

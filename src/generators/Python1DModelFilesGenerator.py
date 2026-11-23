@@ -527,9 +527,11 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
 
 
 def generate1DPythonSimInitFile(df_params, vess, nodes, sim_init_file, filename_prefix, run_folder, ODEsolver, dtSample, computeTotBV,
-                                T0, pre_time, sim_time):
+                                T0, pre_time, sim_time, petsc_solver='CN'):
     # T0: cardiac period, parameter T of the model (get_cardiac_period() in CVSCppGenerator.py)
     # pre_time, sim_time: time window of the user inputs (get_time_window() in CVSCppGenerator.py)
+    # petsc_solver: PETSc time integration scheme with ODEsolver PETSC, the same as in the 0d solver
+    #               (get_petsc_solver() in CVSCppGenerator.py)
 
     config = ConfigParser(allow_no_value=True, delimiters=(':',)) # delimiters=('=', ':')
     config.optionxform = str  # keep keys case-sensitive
@@ -681,7 +683,9 @@ def generate1DPythonSimInitFile(df_params, vess, nodes, sim_init_file, filename_
     }
 
 
-    if ODEsolver=='explEul':
+    # order of the finite volume scheme (FVord) consistent with the ODE solver (checked by the 1d solver):
+    # 1 with explEul and with PETSc BDF1, 2 otherwise
+    if ODEsolver=='explEul' or (ODEsolver=='PETSC' and petsc_solver=='BDF1'):
         FVord = 1
         ODEord = 1
     else:
@@ -690,6 +694,8 @@ def generate1DPythonSimInitFile(df_params, vess, nodes, sim_init_file, filename_
             ODEord = 2
         elif ODEsolver=='RK4':
             ODEord = 4
+        elif ODEsolver=='PETSC': # CN or BDF2
+            ODEord = 2
         else: # ODEsolver = 'CVODE'
             ODEord = -1
 
@@ -702,6 +708,9 @@ def generate1DPythonSimInitFile(df_params, vess, nodes, sim_init_file, filename_
         'ODEord': ODEord,
         'ODEsolver': ODEsolver
     }
+    if ODEsolver=='PETSC':
+        # the same scheme as the 0d solver, checked at start-up of a coupled simulation (see main1D.py)
+        config['numerics']['PETSc_solver'] = petsc_solver
 
 
     config['results'] = {

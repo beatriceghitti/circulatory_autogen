@@ -154,6 +154,7 @@ Before doing calibration, a solver for the model needs to be chosen
     - C++ (`model_type: cpp`): `CVODE`, `RK4`, or `PETSC`.
 - **solver_info** defines settings for the chosen solver:
     - **dt_solver**: solver time step (for CVODE this sets `MaximumStep` when provided)
+    - **petsc_solver**: time integration scheme of the `PETSC` solver of C++ models: `CN` (Crank-Nicolson), `BDF1` (backward Euler) or `BDF2`. Default: `CN` for coupled 1D-0D models, `BDF2` for fully 0D models. In a coupled model, the 0D and 1D solvers use the same scheme, which the coupler checks at start-up (the 1D solver does not implement the coupling with `BDF2` yet).
     - **MaximumStep**: maximum step size for adaptive solvers
     - **MaximumNumberOfSteps**: maximum number of substeps before stepping
     - **method**: any method for `solve_ivp`, e.g. `RK45`, `BDF`, etc.

@@ -20,6 +20,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <string>
 
 // Each program identifies itself with a fixed "color". Using fixed colors (rather than
 // MPI_APPNUM) means that the order of the programs on the mpirun line does not matter.
@@ -38,7 +39,8 @@ enum CouplingColor {
 enum CouplingTag {
     TAG_CONFIG  = 1,   // coupler -> 0d/1d : handshake, COUPLING_CONFIG_LENGTH doubles
                        //                    {N1d0d, couple_volume_sum, T0, pre_time, sim_time, COUPLING_TOL_TIME,
-                       //                     coupling_save_time(pre_time), coupling_end_time(pre_time, sim_time)}
+                       //                     coupling_save_time(pre_time), coupling_end_time(pre_time, sim_time),
+                       //                     PETSc scheme code (see CouplingPetscScheme)}
     TAG_DONE    = 2,   // 0d/1d -> coupler : the solver has completed its time loop {final time, 0}
                        //                    (the coupler aborts the job if the 0d solver stops before the end time)
     TAG_DT      = 10,  // 0d <-> coupler <-> 1d : {time, time step} within a global time step:
@@ -50,7 +52,7 @@ enum CouplingTag {
 };
 
 constexpr int COUPLING_DATA_LENGTH   = 2;  // doubles per time/time step message and per 1d-0d connection
-constexpr int COUPLING_CONFIG_LENGTH = 8;  // doubles in the TAG_CONFIG handshake message
+constexpr int COUPLING_CONFIG_LENGTH = 9;  // doubles in the TAG_CONFIG handshake message
 constexpr double COUPLING_END_OF_STEP = -999.0; // time step value of the TAG_DT message that ends a global time step
 
 // Time synchronisation, checked by the coupler (which aborts the job on any mismatch):
@@ -108,6 +110,43 @@ inline double coupling_save_time(double pre_time)
 inline double coupling_end_time(double pre_time, double sim_time)
 {
     return coupling_round_time(pre_time + sim_time);
+}
+
+// PETSc time integration scheme of a coupled simulation with the PETSc ODE solver: the 0d and the 1d solvers must use
+// the same one. It is chosen at generation (petsc_solver in solver_info of the user inputs, see get_petsc_solver() in
+// CVSCppGenerator.py), which writes it in:
+// - the coupler configuration file (PETSc_solver), read by the coupler;
+// - the 0d solver, built with it (#define SOLVER_CN, SOLVER_BDF1 or SOLVER_BDF2 in model0d.cc);
+// - the 1d input file (PETSc_solver in [numerics] of input.ini), read by the 1d solver.
+// The coupler sends the code of its scheme in the handshake (PETSC_SCHEME_NONE if the ODE solver is not PETSc), and
+// both solvers check that it is their own. The 1d solver uses the same codes (PETSC_SCHEME_CODES in
+// auxMPIFunctions.py): KEEP THEM IN SYNC.
+enum CouplingPetscScheme {
+    PETSC_SCHEME_NONE = 0, // the ODE solver is not PETSc
+    PETSC_SCHEME_BDF1 = 1, // BDF order 1 (backward Euler)
+    PETSC_SCHEME_CN   = 2, // Crank-Nicolson
+    PETSC_SCHEME_BDF2 = 3  // BDF order 2
+};
+
+// Code of a scheme name ("BDF1", "CN" or "BDF2"), -1 if the name is not one of them.
+inline int coupling_petsc_scheme_code(const std::string& name)
+{
+    if (name == "BDF1") return PETSC_SCHEME_BDF1;
+    if (name == "CN")   return PETSC_SCHEME_CN;
+    if (name == "BDF2") return PETSC_SCHEME_BDF2;
+    return -1;
+}
+
+// Name of a scheme code, for the messages.
+inline const char* coupling_petsc_scheme_name(int code)
+{
+    switch (code) {
+        case PETSC_SCHEME_NONE: return "none (the ODE solver is not PETSc)";
+        case PETSC_SCHEME_BDF1: return "BDF1";
+        case PETSC_SCHEME_CN:   return "CN";
+        case PETSC_SCHEME_BDF2: return "BDF2";
+        default:                return "unknown";
+    }
 }
 
 struct CouplingLayout {

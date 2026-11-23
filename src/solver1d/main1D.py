@@ -32,9 +32,8 @@ import auxMPIFunctions as mpicpl
 
 EXPLICIT_ODE_SOLVERS = ("explEul", "Heun", "midpoint", "RK4") # fixed stages at dtFrac*dt (see run1DBFmod)
 
-PETSC_SOLVER = "CN"     # Crank-Nicolson
-# PETSC_SOLVER = "BDF1"   # BDF o1 (Backward Euler)
-# PETSC_SOLVER = "BDF2"   # BDF o2
+# PETSc time integration schemes (with ODEsolver PETSC), chosen with PETSc_solver in [numerics] of input.ini:
+# "CN" (Crank-Nicolson), "BDF1" (BDF o1, backward Euler) or "BDF2" (BDF o2); see run1DBFmod()
 
 
 
@@ -129,6 +128,16 @@ def run1DBFmod(AICstate=[], QICstate=[]):
         T0 = config.getfloat('discretization', 'T0', fallback=1.0) # [s] cardiac cycle duration
         nCC = config.getint('discretization', 'nCC', fallback=0) # number of cardiac cycles
 
+    # PETSc time integration scheme, used with ODEsolver PETSC: PETSc_solver in [numerics] of input.ini, written by the
+    # generator (petsc_solver in solver_info of the user inputs). Default: CN with the second order finite volume
+    # scheme (FVord 2), BDF1 with the first order one (FVord 1). In a coupled run, the 0d solver must use the same
+    # scheme: checked in the handshake with the coupler (see CouplingPetscScheme in coupler_mpi_common.h)
+    PETSc_solver = config.get('numerics', 'PETSc_solver',
+                              fallback='BDF1' if config.getint('numerics', 'FVord', fallback=2) == 1 else 'CN')
+    if ODEsolver == 'PETSC' and PETSc_solver not in mpicpl.PETSC_SCHEME_CODES:
+        sys.exit(f"1d solver :: ERROR: PETSc_solver = {PETSc_solver} in [numerics] of {init_file}: "
+                 f"use one of {', '.join(mpicpl.PETSC_SCHEME_CODES)}")
+
     testFold = config.get('network', 'testFold', fallback=os.path.dirname(init_file))
     inputFoldName = config.get('network', 'inputFoldName', fallback='input_files')
     inputFold = testFold+'/'+inputFoldName+'/'
@@ -161,9 +170,10 @@ def run1DBFmod(AICstate=[], QICstate=[]):
         # no need to transfer dt for each 1d-0d coupling pair
         # as we have introduced dedicated messages to transfer time level and time step
 
-        # check that the coupler (and so the 0d solver) agrees on the coupling layout,
+        # check that the coupler (and so the 0d solver) agrees on the coupling layout and on the PETSc scheme,
         # and get the time tolerance, the save time and the end time shared by the coupler and the 0d solver
-        tolTime_coupler, tSaveIni_coupler, tEndGlob_coupler = cpl.handshake(N1d0d, couple_volume_sum, T0, pre_time, sim_time)
+        tolTime_coupler, tSaveIni_coupler, tEndGlob_coupler = cpl.handshake(
+            N1d0d, couple_volume_sum, T0, pre_time, sim_time, PETSc_solver if ODEsolver == 'PETSC' else None)
 
 
     # [units conversion factors]
@@ -370,10 +380,10 @@ def run1DBFmod(AICstate=[], QICstate=[]):
         #     ODEord = -1
         elif ODEsolver=='PETSC':
             # ODEord = -1
-            if PETSC_SOLVER=="BDF1":
+            if PETSc_solver=="BDF1":
                 ODEord = 1
             else:
-                sys.exit(f'1d solver :: ERROR: FV and ODE solver orders NOT matching: FVord={FVord} || {ODEsolver} with {PETSC_SOLVER}')
+                sys.exit(f'1d solver :: ERROR: FV and ODE solver orders NOT matching: FVord={FVord} || {ODEsolver} with {PETSc_solver}')
         else:
             sys.exit(f'1d solver :: ERROR: FV and ODE solver orders NOT matching: FVord={FVord} || {ODEsolver}')
     elif FVord==2:
@@ -385,10 +395,10 @@ def run1DBFmod(AICstate=[], QICstate=[]):
             ODEord = -1
         elif ODEsolver=='PETSC':
             # ODEord = -1
-            if PETSC_SOLVER=="CN" or PETSC_SOLVER=="BDF2":
+            if PETSc_solver=="CN" or PETSc_solver=="BDF2":
                 ODEord = 2
             else:
-                sys.exit(f'1d solver :: ERROR: FV and ODE solver orders NOT matching: FVord={FVord} || {ODEsolver} with {PETSC_SOLVER}')
+                sys.exit(f'1d solver :: ERROR: FV and ODE solver orders NOT matching: FVord={FVord} || {ODEsolver} with {PETSc_solver}')
         else:
             sys.exit(f'1d solver :: ERROR: FV and ODE solver orders NOT matching: FVord={FVord} || {ODEsolver}')
 
@@ -408,13 +418,13 @@ def run1DBFmod(AICstate=[], QICstate=[]):
         dtFrac = []
         weights = []
     elif ODEsolver=='PETSC':
-        if PETSC_SOLVER=="BDF1":
+        if PETSc_solver=="BDF1":
             dtFrac = np.array([1.])
             weights = np.array([1.])
-        elif PETSC_SOLVER=="CN":
+        elif PETSc_solver=="CN":
             dtFrac = np.array([0., 1.])
             weights = np.array([0.5, 0.5])
-        elif PETSC_SOLVER=="BDF2":
+        elif PETSc_solver=="BDF2":
             dtFrac = []
             weights = []
     
@@ -436,6 +446,8 @@ def run1DBFmod(AICstate=[], QICstate=[]):
     # print('nGP : ', nGP)
     print('ODEord : ', ODEord)
     print('ODEsolver : ', ODEsolver)
+    if ODEsolver == 'PETSC':
+        print('PETSc_solver : ', PETSc_solver)
     
     # [ICs]
     ICtype = config.getint('ICs', 'ICtype', fallback=1) # ICtype=0 if Pinit=0; 1 if Pinit=Pini; 2 if Pinit=P0
@@ -1319,7 +1331,7 @@ def run1DBFmod(AICstate=[], QICstate=[]):
                                         elif gJ[j]==1:
                                             v[iV].FnumQBCR[:] = weights[count]*mod.pF(QStar1D_multi[j,:], K[iV], A0[iV], mTL[iV], nTL[iV])
 
-                            elif ODEsolver=="PETSC" and PETSC_SOLVER=="BDF1":
+                            elif ODEsolver=="PETSC" and PETSc_solver=="BDF1":
                                 if nVJ==1:
                                     if idxBC==0:
                                         v[idxV].FnumQBCL[:] = mod.pF(QStar1D, K[idxV], A0[idxV], mTL[idxV], nTL[idxV])
@@ -1386,7 +1398,7 @@ def run1DBFmod(AICstate=[], QICstate=[]):
                                             v[iV].FnumQBCR[:] = v[iV].FnumQBCR[:] + weights[count]*mod.pF(QStar1D_multi[j,:], K[iV], A0[iV], mTL[iV], nTL[iV])
 
                             elif ODEsolver=="PETSC":
-                                if PETSC_SOLVER=="CN":
+                                if PETSc_solver=="CN":
                                     if nVJ==1:
                                         if idxBC==0:
                                             v[idxV].FnumQBCL_new[:] = mod.pF(QStar1D, K[idxV], A0[idxV], mTL[idxV], nTL[idxV])
@@ -1404,8 +1416,8 @@ def run1DBFmod(AICstate=[], QICstate=[]):
                                                 v[iV].FnumQBCR_new[:] = mod.pF(QStar1D_multi[j,:], K[iV], A0[iV], mTL[iV], nTL[iV])
                                                 v[iV].FnumQBCR[:] = weights[0]*v[iV].FnumQBCR_old[:] + weights[1]*v[iV].FnumQBCR_new[:]
 
-                                elif PETSC_SOLVER=="BDF2": #XXX TODO
-                                    sys.exit(f"1d solver :: ERROR: Coupling between FVord=2 and ODEsolver={ODEsolver} with {PETSC_SOLVER} not yet implemented. Exiting.")
+                                elif PETSc_solver=="BDF2": #XXX TODO
+                                    sys.exit(f"1d solver :: ERROR: Coupling between FVord=2 and ODEsolver={ODEsolver} with {PETSc_solver} not yet implemented. Exiting.")
 
                             else:
                                 sys.exit("1d solver :: ERROR: FVord=2 + ODEsolver="+str(ODEsolver)+" with count "+str(count))

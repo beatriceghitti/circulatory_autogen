@@ -4,6 +4,7 @@ Created on 23/05/2023
 @author: Finbar Argus
 '''
 
+import math
 import shutil
 import numpy as np
 import re
@@ -39,6 +40,18 @@ from urllib.parse import urlparse
 TOL_TIME = 1e-11 # 1e-13; time tolerance of fully 0d models only (coupled models use COUPLING_TOL_TIME from coupler_mpi_common.h)
 REL_TOL = 1e-7
 ABS_TOL = 1e-9
+
+
+def round_half_away(x):
+    '''
+    Round to the nearest integer, halves away from zero, as std::round in C++ (Python's round() rounds halves to
+    even: round(10.5) = 10, std::round(10.5) = 11). Same as _round_half_away() in src/solver1d/auxMPIFunctions.py.
+    '''
+    a = abs(float(x))
+    q = math.floor(a)  # a - q is exact in floating point
+    if a - q >= 0.5:
+        q += 1
+    return math.copysign(float(q), x)
 
 
 def get_time_window(pre_time, sim_time, dt): # OK
@@ -84,11 +97,13 @@ def get_time_window(pre_time, sim_time, dt): # OK
     #         print(f"get_time_window :: ERROR: {name} = {value} must be a multiple of dt = {dt} (sampling time step) "
     #               "in the user inputs, so that the results are saved exactly from pre_time to pre_time + sim_time")
     #         exit(1)
-    if not abs(pre_time - round(pre_time/dt)*dt) <= TOL_TIME:
-        pre_time = round(pre_time/dt)*dt
-    if not abs(sim_time - round(sim_time/dt)*dt) <= TOL_TIME:
-        sim_time = round(sim_time/dt)*dt
-    
+    # rounded to the nearest multiple of dt, halves away from zero as std::round in the cpp solvers
+    # (e.g. 0.0105 -> 0.011 with dt = 0.001; Python's round() would give 0.010)
+    if not abs(pre_time - round_half_away(pre_time/dt)*dt) <= TOL_TIME:
+        pre_time = round_half_away(pre_time/dt)*dt
+    if not abs(sim_time - round_half_away(sim_time/dt)*dt) <= TOL_TIME:
+        sim_time = round_half_away(sim_time/dt)*dt
+
     return pre_time, sim_time, dt
 
 
@@ -124,6 +139,27 @@ def get_cardiac_period(parameters_csv_abs_path): # OK
         error(f"the parameter T (cardiac period) must be a number > 0, not {rows['value'].iloc[0]!r}, "
               f"in {parameters_csv_abs_path}")
     return T0
+
+
+# PETSc time integration schemes of the cpp solvers (with the PETSc ODE solver)
+PETSC_SOLVERS = {'CN': 'Crank-Nicolson', 'BDF1': 'BDF order 1 (backward Euler)', 'BDF2': 'BDF order 2'}
+
+def get_petsc_solver(petsc_solver, couple_to_1d):
+    '''
+    PETSc time integration scheme of a cpp model: petsc_solver in solver_info of the user inputs (yaml file), one of
+    PETSC_SOLVERS, or by default CN for a coupled 1d-0d model and BDF2 for a fully 0d model.
+    The 0d solver is built with it (#define SOLVER_<scheme>). In a coupled model, it is also written in the coupler
+    configuration file (PETSc_solver) and in the 1d input file (PETSc_solver in [numerics] of input.ini), and the
+    coupler checks at start-up that both solvers use it (see CouplingPetscScheme in coupler_mpi_common.h).
+    Exits with an error if it is not valid.
+    '''
+    if petsc_solver is None:
+        return 'CN' if couple_to_1d else 'BDF2'
+    if petsc_solver not in PETSC_SOLVERS:
+        print(f"get_petsc_solver :: ERROR: petsc_solver = {petsc_solver!r} in solver_info of the user inputs: "
+              f"use one of {', '.join(PETSC_SOLVERS)}")
+        exit(1)
+    return petsc_solver
 
 # A line of libCellML's C code that computes a variable: "    variables[k] = ...;" (not a comparison "==").
 VARIABLE_LINE_PATTERN = re.compile(r"^\s*variables\[\d+\]\s*=(?!=)")
@@ -394,7 +430,7 @@ class CVS0DCppGenerator(object):
 
     def __init__(self, model, generated_model_subdir, file_prefix, resources_dir=None, 
                  solver='CVODE', dtSample=1e-3, dtSolver=1e-4, nMaxSteps=5000,
-                 pre_time=None, sim_time=None, T0=None,
+                 pre_time=None, sim_time=None, T0=None, petsc_solver=None,
                  couple_to_1d=False, cpp_generated_models_dir=None,
                  model_1d_config_path=None, create_main_0d=False,
                  conn_1d_0d_info=None, DEBUG=False):
@@ -456,6 +492,12 @@ class CVS0DCppGenerator(object):
             os.mkdir(self.cpp_generated_models_dir)
         
         self.solver = solver
+        # PETSc time integration scheme (with the PETSc ODE solver), see get_petsc_solver()
+        self.petsc_solver = get_petsc_solver(petsc_solver, couple_to_1d)
+        if self.couple_to_1d and self.solver == 'PETSC' and self.petsc_solver == 'BDF2':
+            print("CVS0DCppGenerator __init__ :: WARNING: the 1d solver does not implement the 1d-0d coupling with BDF2 yet: "
+                  "the coupled simulation will stop at its first time step (use CN or BDF1 for petsc_solver in solver_info "
+                  "of the user inputs)")
         self.dtSample = dtSample
         self.dtSolver = dtSolver
         self.nMaxSteps = nMaxSteps
@@ -1924,20 +1966,12 @@ public:
 #include <petscsnes.h>
 #include <petscvec.h>
         """
-            if self.couple_to_1d: #XXX for now
-                preSourceStuff += """
-#define SOLVER_CN       // Crank-Nicolson
-// #define SOLVER_BDF1  // BDF o1 (Backward Euler)
-// #define SOLVER_BDF2  // BDF o2
-            
-        """
-            else:
-                preSourceStuff += """
-// #define SOLVER_CN    // Crank-Nicolson
-// #define SOLVER_BDF1  // BDF o1 (Backward Euler)
-#define SOLVER_BDF2     // BDF o2
-                            
-        """
+            # PETSc time integration scheme, set at generation (see get_petsc_solver()). In a coupled model, the
+            # coupler checks at start-up that it is the scheme of its configuration file and of the 1d solver.
+            preSourceStuff += "\n// PETSc time integration scheme, set at generation (petsc_solver in solver_info of the user inputs)\n"
+            for scheme, description in PETSC_SOLVERS.items():
+                preSourceStuff += f"{'' if scheme == self.petsc_solver else '// '}#define SOLVER_{scheme} // {description}\n"
+            preSourceStuff += "\n"
 
         with open(generators_dir_path+'/cppGeneratorTemplateFunctions.cpp', 'r') as file:
             lines_tmp = file.readlines()
@@ -4192,6 +4226,12 @@ int main(int argc, char* argv[]){
             coupler_config['inputFold'] = self.cpp_generated_models_dir+'/'
             coupler_config['networkName'] = self.file_prefix
             coupler_config['ODEsolver'] = self.solver
+            # PETSc time integration scheme of both solvers, checked by the coupler (see CouplingPetscScheme in
+            # coupler_mpi_common.h): only with the PETSc ODE solver
+            if self.solver == 'PETSC':
+                coupler_config['PETSc_solver'] = self.petsc_solver
+            else:
+                coupler_config.pop('PETSc_solver', None)
             # time settings: cardiac period (parameter T of the model) and time window (pre_time and sim_time of the
             # user inputs), used by the coupler and both solvers (see coupling_end_time() in coupler_mpi_common.h)
             coupler_config['T0'] = self.T0
@@ -4223,11 +4263,12 @@ class CVS1DPythonGenerator(object):
     def __init__(self, model, file_prefix, vessels1d_csv_abs_path, parameters_csv_abs_path,
                 model_1d_config_path, generated_model_subdir, cpp_generated_models_dir=None,
                 solver='CVODE', dtSample=1e-3, dtSolver=1e-4, pre_time=None, sim_time=None, T0=None,
-                conn_1d_0d_info=None):
+                petsc_solver=None, conn_1d_0d_info=None):
         '''
         Constructor
         pre_time, sim_time: time window of the user inputs (see get_time_window())
         T0: cardiac period, parameter T of the model (see get_cardiac_period())
+        petsc_solver: PETSc time integration scheme, the same as in the 0d solver (see get_petsc_solver())
         '''
 
         self.model = model
@@ -4251,6 +4292,7 @@ class CVS1DPythonGenerator(object):
         # print(self.initFiles1dFold, os.path.exists(self.initFiles1dFold))
 
         self.ODEsolver = solver
+        self.petsc_solver = get_petsc_solver(petsc_solver, True)
         self.dtSample = dtSample
         self.dtSolver = dtSolver
         self.pre_time, self.sim_time, self.dtSample = get_time_window(pre_time, sim_time, dtSample)
@@ -4292,7 +4334,7 @@ class CVS1DPythonGenerator(object):
                 if self.conn_1d_0d_info[str(i+1)]["port_volume_sum"]==1:
                     computeTotBV = True
         generate1DPythonSimInitFile(self.params_df, vess1d, nodes1d, self.initFile1d, self.file_prefix, self.run1dFold, self.ODEsolver, self.dtSample, computeTotBV,
-                                    self.T0, self.pre_time, self.sim_time)
+                                    self.T0, self.pre_time, self.sim_time, petsc_solver=self.petsc_solver)
 
 
         if self.file_prefix.endswith("_1d"):

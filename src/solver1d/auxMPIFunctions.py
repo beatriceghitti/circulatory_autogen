@@ -22,8 +22,12 @@ import numpy as np
 COLOR_COUPLER, COLOR_SOLVER0D, COLOR_SOLVER1D = 0, 1, 2
 TAG_CONFIG, TAG_DONE, TAG_DT, TAG_DT_STEP, TAG_DATA, TAG_VOL = 1, 2, 10, 11, 20, 30
 DATA_LENGTH = 2     # doubles per time/time step message and per 1d-0d connection
-CONFIG_LENGTH = 8   # doubles in the TAG_CONFIG handshake:
-                    # {N1d0d, couple_volume_sum, T0, pre_time, sim_time, tolTime, tSave, tEnd}
+CONFIG_LENGTH = 9   # doubles in the TAG_CONFIG handshake:
+                    # {N1d0d, couple_volume_sum, T0, pre_time, sim_time, tolTime, tSave, tEnd, PETSc scheme code}
+# Codes of the PETSc time integration schemes sent in the handshake (CouplingPetscScheme in coupler_mpi_common.h):
+# 0 when the ODE solver is not PETSc
+PETSC_SCHEME_NONE = 0
+PETSC_SCHEME_CODES = {"BDF1": 1, "CN": 2, "BDF2": 3}
 
 # The coupling currently in use (if any), so that errors can abort the whole MPI job.
 _active_coupling = None
@@ -79,9 +83,13 @@ class MPICoupling1D:
         self.N1d0d = 0
         print(f"1d solver :: MPI coupling initialised, coupler is world rank {self.coupler}", flush=True)
 
-    def handshake(self, N1d0d, couple_volume_sum, T0, pre_time, sim_time):
+    def handshake(self, N1d0d, couple_volume_sum, T0, pre_time, sim_time, petsc_solver):
         """
         Receive the coupling layout from the coupler and check that it matches ours.
+
+        petsc_solver: PETSc time integration scheme of the 1d solver ("BDF1", "CN" or "BDF2", PETSc_solver in input.ini),
+        or None if its ODE solver is not PETSc: it must be the scheme of the coupler configuration file, with which
+        the 0d solver was built (see CouplingPetscScheme in coupler_mpi_common.h).
 
         Returns the time tolerance, the save time and the end time of the coupled simulation (COUPLING_TOL_TIME,
         coupling_save_time() and coupling_end_time() in coupler_mpi_common.h), which the 1d solver must use
@@ -110,6 +118,18 @@ class MPICoupling1D:
         if not (abs(tSave - pre_time) <= tolTime and abs(tEnd - (pre_time + sim_time)) <= tolTime and tEnd > tSave):
             self.abort(f"1d solver :: Error: invalid save time {tSave} or end time {tEnd} from the coupler "
                        f"(pre_time = {pre_time}, pre_time + sim_time = {pre_time + sim_time})")
+        # PETSc scheme: the same in the coupler configuration file, in the 0d solver and here
+        def scheme_name(code):
+            if code == PETSC_SCHEME_NONE:
+                return "none (the ODE solver is not PETSc)"
+            return next((name for name, c in PETSC_SCHEME_CODES.items() if c == code), f"unknown (code {code})")
+        mine_scheme = PETSC_SCHEME_NONE if petsc_solver is None else PETSC_SCHEME_CODES[petsc_solver]
+        if int(cfg[8]) != mine_scheme:
+            self.abort(f"1d solver :: ERROR: PETSc scheme mismatch: the coupler configuration file uses "
+                       f"{scheme_name(int(cfg[8]))}, but this 1d solver uses {scheme_name(mine_scheme)} "
+                       "(PETSc_solver in [numerics] of input.ini): regenerate the model, so that the coupler configuration "
+                       "file (ODEsolver, PETSc_solver), the 0d solver and the 1d solver use the same scheme "
+                       "(petsc_solver in solver_info of the user inputs)")
         self.N1d0d = int(N1d0d)
         return tolTime, tSave, tEnd
 

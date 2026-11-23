@@ -2,6 +2,7 @@
     "inputFold": "./",
     "networkName": "model_hybrid",
     "ODEsolver": "CVODE",
+    "PETSc_solver": "CN",
     "T0": 1.0,
     "pre_time": 0.0,
     "sim_time": 3.0,
