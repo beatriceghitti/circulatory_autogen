@@ -197,6 +197,10 @@ class CSV0DModelParser(object):
 
         self.conn_1d_0d_info = {}
         N1d0d = 0
+        # Boundary modules (inlet_flow, inlet_pressure, outlet_flow, outlet_pressure) next to a 1d vessel are replaced by
+        # boundary conditions of the 1d solver. They are dropped from vessels_df_0d after the loop below (not inside it),
+        # so that the rows of vessels_df_0d keep their labels 0..n-1 while new rows are appended with loc[len(...)].
+        boundary_modules_to_drop = []
         
         #XXX For now, only one-1d-to-one-0d connections are considered and implemented
         #XXX TODO Make this more general
@@ -222,8 +226,7 @@ class CSV0DModelParser(object):
                                     elif vessels_df_0d.at[idx0d_int,"vessel_type"].startswith("inlet_pressure"):
                                         vessels_df_1d.at[i,"inp_vessels"] = 'input_pressure_BC'
 
-                                    vessels_df_0d.drop(index=idx0d_int, inplace=True)
-                                    vessels_df_0d = vessels_df_0d.reset_index(drop=True)
+                                    boundary_modules_to_drop.append(inp_vess)
 
                             else:
                                 # inp_vessels_0d = vessels_df_0d.at[idx0d[0],"inp_vessels"].split()
@@ -247,7 +250,8 @@ class CSV0DModelParser(object):
                                     self.conn_1d_0d_info[str(N1d0d+1)] = {"vess1d_idx": i,
                                                                         "vess1d_name": vess1d,
                                                                         "vess1d_bc_in0_or_out1": 0,
-                                                                        "vess0d_idx": int(idx0d_int),
+                                                                        "vess0d_name": inp_vess, # replaced by vess0d_idx after the loop
+                                                                        "vess0d_idx": -1,
                                                                         "cellml_idx": -1,
                                                                         "cellml_bc_in0_or_out1": 1,
                                                                         "cellml_bc_flow0_or_press1": bc_0d,
@@ -302,8 +306,7 @@ class CSV0DModelParser(object):
                                     elif vessels_df_0d.at[idx0d_int,"vessel_type"].startswith("outlet_pressure"):
                                         vessels_df_1d.at[i,"out_vessels"] = 'output_pressure_BC'
 
-                                    vessels_df_0d.drop(index=idx0d_int, inplace=True)
-                                    vessels_df_0d = vessels_df_0d.reset_index(drop=True)
+                                    boundary_modules_to_drop.append(out_vess)
                             
                             else:
                                 inp_vessels_0d = vessels_df_0d.at[idx0d_int,"inp_vessels"].split()
@@ -327,7 +330,8 @@ class CSV0DModelParser(object):
                                     self.conn_1d_0d_info[str(N1d0d+1)] = {"vess1d_idx": i,
                                                                         "vess1d_name": vess1d,
                                                                         "vess1d_bc_in0_or_out1": 1,
-                                                                        "vess0d_idx": int(idx0d_int),
+                                                                        "vess0d_name": out_vess, # replaced by vess0d_idx after the loop
+                                                                        "vess0d_idx": -1,
                                                                         "cellml_idx": -1,
                                                                         "cellml_bc_in0_or_out1": 0,
                                                                         "cellml_bc_flow0_or_press1": bc_0d,
@@ -364,6 +368,18 @@ class CSV0DModelParser(object):
                     else:
                         print(f"ERROR :: more than one index found for {out_vess} in 1D vessel array")
                         exit()
+
+        # Drop the boundary modules replaced by 1d boundary conditions, and only then set the index of the 0d module of
+        # each connection: vess0d_idx is the position of the module in the final vessels_df_0d, which is written to
+        # vessel_filename_0d and read back by the generators (they compare it with the row positions of that file).
+        # Setting it during the loop would leave it one row off for the modules below a dropped one.
+        vessels_df_0d = vessels_df_0d[~vessels_df_0d["name"].isin(boundary_modules_to_drop)].reset_index(drop=True)
+        position_0d = {name: k for k, name in enumerate(vessels_df_0d["name"])}
+        for conn in self.conn_1d_0d_info.values():
+            # pop() method removes an item from a collection and returns its value,
+            # so that the name is not written to the json file,
+            # and the index is used instead by the generators
+            conn["vess0d_idx"] = position_0d[conn.pop("vess0d_name")]
 
         print(f"Number of one-to-one 1D-0D connections: {N1d0d}")
         
