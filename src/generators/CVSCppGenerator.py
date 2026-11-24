@@ -3152,7 +3152,10 @@ void Model0d::initialiseVariablesAndComputeConstants() {
     computeComputedConstants(variables);
     getExternalVariablesVolume(variables);
     computeNonExternalVariables(voi, states, rates, variables);
-    computeCouplingDependentVariables(voi, states, rates, variables); // with the initial values received from the 1d
+    // in a coupled model, nothing has been received from the 1d solver yet: the received values are still 0 here.
+    // These variables are only used in the t = 0 output row (initial conditions); the first evaluation of the rates
+    // recomputes them after the first exchange.
+    computeCouplingDependentVariables(voi, states, rates, variables);
     // computeRates(voi, dt, states, rates, variables); // is this needed here?
     // computeVariables(voi, dt, states, rates, variables); // variables all already computed within computeRates() function
         """

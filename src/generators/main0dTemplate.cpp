@@ -168,6 +168,8 @@ int main(int argc, char* argv[]) {
     time = tIni;
     dt = dt0D;
     
+    // t = 0 output row (pre_time = 0): the initial conditions, as the 1d solver. In a coupled run, it is written before
+    // any exchange with the 1d solver, so the values received from it are 0 in this row.
     if (std::abs(tIni-tSaveRes)<=tolTime) {
         model0d->writeOutput(time);
     }

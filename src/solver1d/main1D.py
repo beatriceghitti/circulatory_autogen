@@ -1030,7 +1030,8 @@ def run1DBFmod(AICstate=[], QICstate=[]):
         cpl.send_vol(one_data_vol)
 
 
-    # store the numerical solution at initial time
+    # store the numerical solution at initial time (pre_time = 0): the initial conditions, as the 0d solver
+    # (in a coupled run, written before any exchange with the 0d solver)
     for i in range(nVess):
         if np.abs(tIni-tSaveIni)<=tolTime:
             v[i].outputResults(tIni)        
