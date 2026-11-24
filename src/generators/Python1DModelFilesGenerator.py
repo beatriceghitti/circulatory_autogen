@@ -241,14 +241,14 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
         Returns False, without creating anything, if none of them has a 1d-0d connection.
         """
         ends = node_ends(iV, side)
-        ends_conn = [e for e in ends if e in conn_ends]
-        if len(ends_conn) == 0:
+        conns_at_node = [e for e in conn_ends if e in ends] # one entry per connection (one end may have several)
+        if len(conns_at_node) == 0:
             # NO 1D vessel end at this node has a 1d-0d connection.
             return False
-        if len(ends_conn) > 1:
-            sys.exit(f"generate1DPythonModelFiles :: ERROR: the 1D vessel ends "
-                     f"{', '.join(vess[e[0]]['name'] + (' inlet' if e[1] == 0 else ' outlet') for e in ends_conn)} "
-                     f"are at the same node and each has a 1d-0d connection: only one 1d-0d connection per node is possible")
+        if len(conns_at_node) > 1:
+            sys.exit(f"generate1DPythonModelFiles :: ERROR: {len(conns_at_node)} 1d-0d connections at the same node, on "
+                     f"{', '.join(vess[e[0]]['name'] + (' inlet' if e[1] == 0 else ' outlet') for e in conns_at_node)}: "
+                     f"only one 1d-0d connection per node is possible")
         nodes[iN] = {'id' : iN, 'type' : 999, 'vess_list' : []} # code 999: hybrid junction / 1d-0d connection
         for (iB, sideB) in ends:
             vess[iB]['n1' if sideB == 0 else 'n2'] = iN

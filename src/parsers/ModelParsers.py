@@ -203,12 +203,38 @@ class CSV0DModelParser(object):
         # so that the rows of vessels_df_0d keep their labels 0..n-1 while new rows are appended with loc[len(...)].
         boundary_modules_to_drop = []
         
-        #XXX For now, only one-1d-to-one-0d connections are considered and implemented
+        # For now, only one-1d-to-one-0d (or multiple-1d-to-one-0d) connections are allowed and implemented
         #XXX TODO Make this more general
+        names_1d = set(vessels_df_1d["name"])
+        names_0d = set(vessels_df_0d["name"])
+        def is_boundary_module(name, boundary_types):
+            # boundary module (e.g. inlet_flow): replaced below by a boundary condition of the 1d solver
+            rows = vessels_df_0d[vessels_df_0d["name"]==name]
+            return (len(rows) > 0 and rows["vessel_type"].iloc[0].startswith(boundary_types)
+                    and rows["BC_type"].iloc[0].startswith("nn"))
+
         for i in range(vessels_df_1d.shape[0]):
             vess1d = vessels_df_1d.at[i,"name"]
             inp_vessels = vessels_df_1d.at[i,"inp_vessels"].split()
             out_vessels = vessels_df_1d.at[i,"out_vessels"].split()
+
+            # A 1d vessel end can be next to one 0d module only: the 1d solver has one node, and so at most one 1d-0d
+            # connection, per vessel end (other 1d vessels can share that node). A boundary module becomes the boundary
+            # condition of the 1d vessel end, so it must be alone at that end.
+            for side, listed, boundary_types in (("inlet", inp_vessels, ("inlet_flow","inlet_pressure")),
+                                                 ("outlet", out_vessels, ("outlet_flow","outlet_pressure"))):
+                listed_0d = [name for name in listed if name not in names_1d and name in names_0d]
+                boundary = [name for name in listed_0d if is_boundary_module(name, boundary_types)]
+                if len(boundary) > 0 and len(listed) > 1:
+                    print(f"ERROR :: the {side} of 1D vessel {vess1d} is next to the boundary module {boundary[0]} and to "
+                          f"{', '.join(name for name in listed if name != boundary[0])}: a boundary module must be alone at a "
+                          f"1D vessel end, as it becomes the boundary condition of that end.")
+                    sys.exit(1)
+                if len(listed_0d) > 1:
+                    print(f"ERROR :: the {side} of 1D vessel {vess1d} is next to the 0D modules {', '.join(listed_0d)}: "
+                          f"a 1D vessel end can be next to one 0D module only (one 1d-0d connection per vessel end). "
+                          f"Put a single 0D module (e.g. a 0D junction) between {vess1d} and {', '.join(listed_0d)}.")
+                    sys.exit(1)
 
             if len(inp_vessels)>0:
                 for inp_vess in inp_vessels:
