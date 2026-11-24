@@ -24,7 +24,7 @@ opencor_root = site_pkg_path.split('/Python/')[0]
 
 LIBCELLML_available = True
 try:
-    from libcellml import Annotator, Analyser, AnalyserModel, AnalyserExternalVariable, Generator, GeneratorProfile        
+    from libcellml import Annotator, Analyser, AnalyserModel, AnalyserExternalVariable, AnalyserVariable, Generator, GeneratorProfile
     import utilities.libcellml_helper_funcs as cellml
     import utilities.libcellml_utilities as libcellml_utils
 except ImportError as e:
@@ -199,12 +199,13 @@ def check_variables_computation_order(ordered_lines, all_lines, external_handled
     ordered_lines: the lines "variables[k] = ...;" in the order in which they are written.
     all_lines: all the lines computing variables in libCellML's code, including the external variables.
     external_handled: indices of the external variables whose use is handled: 
-        - the variables received from the 1d solver (the variables using them are computed after the exchange), and
-        - the 1d volumes (set at the end of each time step, before the variables are computed).
+        - the variables received from the 1d solver (the variables using them are computed after the exchange),
+        - the 1d volumes (set at the end of each time step, before the variables are computed), and
+        - the delayed variables (set by getDelayVariables() before the variables are computed).
 
-    Raises an error if a variable is used before it is computed. Prints a warning if a variable uses another external
-    variable: it is set by getDelayVariables() or getExternalVariables(), after computeNonExternalVariables(), so these
-    variables use its value from the previous evaluation.
+    Raises an error if a variable is used before it is computed.
+    Prints a warning if a variable uses another external variable: it is set by getExternalVariables(), 
+    after computeNonExternalVariables(), so these variables use its value from the previous evaluation.
     """
     computed_at = {}
     for i, line2 in enumerate(ordered_lines):
@@ -225,8 +226,8 @@ def check_variables_computation_order(ordered_lines, all_lines, external_handled
                            "(they would take their value from the previous evaluation):\n  " + "\n  ".join(used_before))
     if uses_external:
         print("WARNING :: generated computeNonExternalVariables(): these variables use external variables, which are "
-              "set after them by getDelayVariables() or getExternalVariables(), so they use the external value from "
-              "the previous evaluation:\n  " + "\n  ".join(uses_external))
+              "set after them by getExternalVariables(), so they use the external value from the previous evaluation:"
+              "\n  " + "\n  ".join(uses_external))
 
 
 def split_variables_at_coupling_exchange(ordered_lines, received): # OK
@@ -1480,7 +1481,7 @@ class CVS0DCppGenerator(object):
             # print("external variable:", ext_variable)
             ev = ext_variable['variable']
             ev_type = ext_variable['variable_type']
-            bc_inlet_or_outlet = ext_variable['bc_inlet0_or_outlet1']
+            bc_inlet_or_outlet = ext_variable.get('bc_inlet0_or_outlet1') # 1d-0d coupling variables only (not delays)
 
             idxev = -1  
             epv = -1
@@ -1546,6 +1547,8 @@ class CVS0DCppGenerator(object):
                         ext_variable['delay_variable_index'] = av.index()
                     if analysed_model.areEquivalentVariables(v, ext_variable['delay_amount_variable']):
                         ext_variable['delay_amount_index'] = av.index()
+                        ext_variable['delay_amount_type'] = av.type()
+                        ext_variable['delay_amount_value'] = av.variable().initialValue()
             
             astates = analysed_model.states()
             for astate in astates:
@@ -1570,6 +1573,50 @@ class CVS0DCppGenerator(object):
                             self.conn_1d_0d_info[str(idx1d0d)]["port_state0_or_var1"] = 0 # state
                         print(state.name(), epv.name(), " || port state index", ext_variable['port_state_index'])
             print("****")
+
+        # Delay variables: delayed variable = variable to delay at (t - delay amount). Each one is computed from the
+        # history of the variable to delay (values at the end of the time steps, interpolated linearly), before the
+        # other variables (see getDelayVariables(), initDelayHistories() and storeDelayHistories() in the generated code).
+        delay_variables = []
+        for ext_variable in external_variable_info:
+            if ext_variable['variable_type'] != 'delay':
+                continue
+            dv = ext_variable['delay_variable']
+            name = f"{dv.parent().name()}/{dv.name()} = {ext_variable['variable'].name()}(t - {ext_variable['delay_amount_variable'].name()})"
+            if ext_variable.get('state_or_variable') == 'state':
+                source = f"states[{ext_variable['state_index']}]"
+            elif ext_variable.get('state_or_variable') == 'variable':
+                source = f"variables[{ext_variable['variable_index']}]"
+            else:
+                print(f"generate_cpp :: ERROR: delay variable {name}: the variable to delay is not a state or an algebraic "
+                      "variable of the analysed model")
+                exit(1)
+            if 'delay_variable_index' not in ext_variable or 'delay_amount_index' not in ext_variable:
+                print(f"generate_cpp :: ERROR: delay variable {name}: the delayed variable or the delay amount is not in the "
+                      "analysed model")
+                exit(1)
+            if ext_variable['delay_amount_type'] not in (AnalyserVariable.Type.CONSTANT, AnalyserVariable.Type.COMPUTED_CONSTANT):
+                print(f"generate_cpp :: ERROR: delay variable {name}: the delay amount must be a constant (or computed from "
+                      "constants only): a delay that changes in time is not implemented")
+                exit(1)
+            delay_variables.append({'name': name, 'source': source, 'delayed_index': ext_variable['delay_variable_index'],
+                                    'amount_index': ext_variable['delay_amount_index']})
+            try:
+                delay_value = float(ext_variable.get('delay_amount_value') or 'nan')
+            except ValueError:
+                delay_value = float('nan')
+            if delay_value <= 0.0:
+                print(f"generate_cpp :: ERROR: delay variable {name}: the delay amount must be > 0 ({delay_value} given)")
+                exit(1)
+            if delay_value < float(self.dtSolver):
+                print(f"generate_cpp :: WARNING: delay variable {name}: the delay amount {delay_value} is shorter than the "
+                      f"solver time step {self.dtSolver}: the delayed value then lags by up to one time step")
+        if delay_variables:
+            print(f"generate_cpp :: NOTE: this model has {len(delay_variables)} delay variable(s):\n  "
+                  + "\n  ".join(d['name'] for d in delay_variables)
+                  + "\n  Their implementation in the cpp solvers is basic and might need improvements (check the results): "
+                  "each delayed value is interpolated linearly in the history of the values at the end of the time steps, "
+                  "and takes the initial value of the variable to delay for t < delay.")
 
         # Variables exchanged with the 1d solver, used to split the computation of the variables around the exchange
         # (see split_variables_at_coupling_exchange() and analyse_coupling_connections()):
@@ -1637,7 +1684,8 @@ class CVS0DCppGenerator(object):
             if 'external' not in line2 and line2 not in non_external_lines:
                 non_external_lines.append(line2)
         check_variables_computation_order(non_external_lines, rates_var_lines + variables_var_lines,
-                                          coupling_received | coupling_volume_sum)
+                                        coupling_received | coupling_volume_sum | {d['delayed_index'] for d in delay_variables})
+                                        # a single set built from three unions with '|'
         lines_before, lines_after, depends_on = split_variables_at_coupling_exchange(non_external_lines, coupling_received)
         if lines_after:
             print(f"1d-0d coupling: {len(lines_after)} variables depend on the variables received from the 1d solver, "
@@ -1798,6 +1846,8 @@ public:
     // couplingSend[2*i+1] = resistance R; the 1d solver imposes P0D + R*q (1d outlet) or P0D - R*q (1d inlet)
     double couplingSend[{max(2*len(coupling_connections), 2)}];
     void getDelayVariables(double voiLoc, double dtLoc, double *statesLoc, double *varLoc);
+    void initDelayHistories();  // delay variables: history of the variables to delay, from their initial values
+    void storeDelayHistories(); // delay variables: values at the end of each time step
     void getExternalVariables(double voiLoc, double dtLoc, double *statesLoc, double *varLoc);
     void getExternalVariablesVolume(double *varLoc);
 
@@ -1838,14 +1888,8 @@ public:
     double time_dof_0d;
         """
 
-        bufferPartsHeader = f"""
-    bool buffersInitialised = false;
-
-    void initBuffers(double dt);
-    
-    std::map<std::string, circular_buffer*> circular_buffer_dict;
-    void storeBufferVariable(int index, double value);
-    double getBufferVariable(int index, double dt_fraction, int pop_bool);
+        delayHistoriesMember = """
+    std::vector<DelayHistory> delayHistories; // one per delay variable, see getDelayVariables()
         """
 
         if self.couple_to_1d:
@@ -2291,9 +2335,8 @@ Model0d::Model0d() :
 
                     line = line + "\n"      # start from the original line
                     line += "{\n"           # add the opening brace
+                    line += "    getDelayVariables(voi, dt, states, variables); // delayed values: from the past only, so first\n"
                     line += "    computeNonExternalVariables(voi, states, rates, variables);\n"
-                    # line += "    if (N1d0d>0){\n"  
-                    line += "    getDelayVariables(voi, dt, states, variables);\n"
                     line += "    computeCouplingSentValues(voi, states, rates, variables);\n"
                     line += "    getExternalVariables(voi, dt, states, variables);\n"
                     line += "    computeCouplingDependentVariables(voi, states, rates, variables);\n"
@@ -2663,7 +2706,9 @@ void Model0d::set_ode_solver(std::string ODEsolver)
                 break
         for iL, line in enumerate(lines_tmp[iStart:iEnd+1], start=iStart):
             if "VARIABLE_INFO[i].type == EXTERNAL ||" in line:
-                if self.couple_to_1d:
+                # external variables are written to the output in coupled models (values received from the 1d solver)
+                # and with delay variables (delayed values)
+                if self.couple_to_1d or delay_variables:
                     outputFunctions += line + '\n'
                 else:
                     line = line.replace("VARIABLE_INFO[i].type == EXTERNAL || ", "")
@@ -2823,83 +2868,52 @@ void Model0d::set_ode_solver(std::string ODEsolver)
         # can have and their corresponding port variables. 
         # a new one will be created for each type of coupling.
         # TODO Beatrice: check compatibility with Finbar's code for delay variables
-        
-        computeEV = f"""
+
+        # Delay variables (see delay_variables above): each delayed value is interpolated in the history of the variable
+        # to delay (DelayHistory), which holds its values at the end of the time steps, whatever their length (fully 0d
+        # and coupled runs). It depends only on past values, so it is set before the other variables are computed.
+        computeEV = """
 void Model0d::getDelayVariables(double voiLoc, double dtLoc, double *statesLoc, double *varLoc)
-{{
-    // First, deal with delay variables
-    // TODO Bea: check with Finbar if I am doing it right (from his previous code)
-    // this function should manage the delay variables correctly based on the value of time_dof_0d, as originally done by Finbar
-    // even if now time_dof_0d is only used for delay variables, but not for other external variables coming from 1d-0d coupling
+{
+    // delayed value = value of the variable to delay at voiLoc - delay, interpolated in its history
 """
-        nDelay = 0
-        idx_delay_vars = []
-        for iEV, ext_variable in enumerate(external_variable_info):
-            # print(ext_variable.keys())
-            if ext_variable['variable_type'] == 'delay':
-                nDelay +=1
-                idx_delay_vars.append(iEV)
+        for k, d in enumerate(delay_variables):
+            computeEV += (f"    varLoc[{d['delayed_index']}] = delayHistories[{k}].valueAt(voiLoc - varLoc[{d['amount_index']}]);"
+                          f" // {d['name']}\n")
+        computeEV += """}
 
-        if nDelay>0:
-            computeEV += """
-    double dt_fraction = (voiLoc-voi)/dt;
-    int index;
-    double value; 
+void Model0d::initDelayHistories()
+{
+    // history of each variable to delay, started with its initial value: the delayed value is the initial value of the
+    // variable to delay for t < delay
 """
-            for iEV in idx_delay_vars:
-                ext_variable = external_variable_info[iEV]
-                # print(ext_variable.keys())
-                # variable or state index
-                if ext_variable["state_or_variable"] == "state":
-                    state_index = ext_variable['state_index']
-                else:
-                    variable_index = ext_variable['variable_index']
+        if delay_variables:
+            computeEV += f"    delayHistories.assign({len(delay_variables)}, DelayHistory());\n"
+        for k, d in enumerate(delay_variables):
+            source = d['source']
+            computeEV += f"""    // {d['name']}
+    if (!(variables[{d['amount_index']}] > 0.0)) {{
+        std::cerr << "0d solver :: ERROR: delay variable {d['name']}: the delay must be > 0 ("
+                  << variables[{d['amount_index']}] << " given)" << std::endl;
+        exit(1);
+    }}
+    if (variables[{d['amount_index']}] < dt) {{
+        std::cout << "0d solver :: WARNING: delay variable {d['name']}: the delay " << variables[{d['amount_index']}]
+                  << " is shorter than the time step " << dt << ": the delayed value lags by up to one time step" << std::endl;
+    }}
+    delayHistories[{k}].reset(voi, {source});
+    variables[{d['delayed_index']}] = {source};
+"""
+        computeEV += """}
 
-                # TODO Finbar: if time_dof_0d = 0 then we don't store the variables in the buffer, only store when it equals -1
-                # set up so that when time_dof_0d is not -1 we don't step forward in the buffer, we only interpolate 
-                # from it, we only step forward in the buffer when time_dof_0d is -1
-                # use a time_0d variable to check where voi is in terms of time_0d
-                # TODO Finbar: we could run a rough CVODE where we only save at time_output points, then linearly interpolate...
-                # this would be quite easy to implement.. unsure about stability.
-             
-                variable_index = ext_variable['delay_variable_index']
-                delay_variable_index = ext_variable['delay_variable_index']
-                delay_amount_index = ext_variable['delay_amount_index']
-
-                computeEV += f'\n'
-                computeEV += f'    value = 0.0;\n'
-                computeEV += f'    index = {delay_variable_index};\n'
-                computeEV += f'    if (voiLoc < varLoc[{delay_amount_index}]) {{\n'
-                computeEV += f'        if (buffersInitialised != true) {{\n'
-                computeEV += f'            value = 0.0;\n'
-                computeEV += f'        }}\n'
-                computeEV += f'        else {{\n'
-                computeEV += f'            if (time_dof_0d == -1) {{\n'
-                if ext_variable["state_or_variable"] == "state":
-                    computeEV += f'                storeBufferVariable({delay_variable_index}, statesLoc[{state_index}]);\n'
-                else:
-                    computeEV += f'                storeBufferVariable({delay_variable_index}, varLoc[{variable_index}]);\n'
-                computeEV += f'            }}\n'
-                computeEV += f'            value = 0.0;\n'
-                computeEV += f'        }}\n'
-                computeEV += f'    }} else {{\n'
-                computeEV += f'        if (time_dof_0d == -1) {{\n'
-                computeEV += f'            value = getBufferVariable({delay_variable_index}, 1.0, 1);\n'
-                computeEV += f'        }} else {{\n'
-                computeEV += f'            value = getBufferVariable({delay_variable_index}, dt_fraction, 0);\n'
-                computeEV += f'        }}\n'
-                computeEV += f'        // save the current value of the variable to the circle buffer\n'
-                computeEV += f'        if (time_dof_0d == -1) {{\n'
-                if ext_variable["state_or_variable"] == "state":
-                    computeEV += f'            storeBufferVariable({delay_variable_index}, statesLoc[{state_index}]);\n'
-                else:
-                    computeEV += f'            storeBufferVariable({delay_variable_index}, varLoc[{variable_index}]);\n'
-                computeEV += f'        }}\n'
-                computeEV += f'    }}\n'
-                computeEV += f'    varLoc[{variable_index}] = value;\n' #XXX TODO Bea: not sure about this!!!
-                
-        computeEV += f"""
-}}
+void Model0d::storeDelayHistories()
+{
+    // at the end of each time step: value of each variable to delay, and drop the values no longer needed
+"""
+        for k, d in enumerate(delay_variables):
+            computeEV += f"    delayHistories[{k}].add(voi, {d['source']});\n"
+            computeEV += f"    delayHistories[{k}].dropBefore(voi - variables[{d['amount_index']}]);\n"
+        computeEV += """}
 """
 
         computeEV += """
@@ -3171,6 +3185,16 @@ void Model0d::initialiseVariablesAndComputeConstants() {
     // computeRates(voi, dt, states, rates, variables); // is this needed here?
     // computeVariables(voi, dt, states, rates, variables); // variables all already computed within computeRates() function
         """
+        if delay_variables:
+            # delay variables: start the histories from the initial values of the variables to delay (computed above),
+            # then recompute the variables that use the delayed values
+            anchor = "    computeNonExternalVariables(voi, states, rates, variables);\n    // in a coupled model, nothing"
+            assert externalInteractionFunctions.count(anchor) == 1
+            externalInteractionFunctions = externalInteractionFunctions.replace(anchor,
+                "    computeNonExternalVariables(voi, states, rates, variables);\n"
+                "    initDelayHistories(); // delay variables: initial values of the variables to delay\n"
+                "    computeNonExternalVariables(voi, states, rates, variables); // with the delayed values\n"
+                "    // in a coupled model, nothing")
         if self.solver == 'CVODE':
             externalInteractionFunctions += """
     // reinitialise the CVODE solver with the initialised state variables 
@@ -3309,9 +3333,10 @@ void Model0d::solveOneStep(double dtLoc)
             solveOneStepFunction += """
     // computeVariables(voi, states, rates, variables);
     getExternalVariablesVolume(variables);
+    getDelayVariables(voi, dt, states, variables);
     computeNonExternalVariables(voi, states, rates, variables);
     computeCouplingDependentVariables(voi, states, rates, variables); // with the values received at the last exchange
-    getDelayVariables(voi, dt, states, variables);
+    storeDelayHistories(); // delay variables: values at the end of the time step
     userData->tOld = voi; // &voi is already incremented by dt within CVode() function
 }
 """
@@ -3367,9 +3392,10 @@ void Model0d::solveOneStep(double dtLoc)
             solveOneStepFunction += """
     // computeVariables(voiEnd, states, rates, variables);
     getExternalVariablesVolume(variables);
+    getDelayVariables(voi, dt, states, variables);
     computeNonExternalVariables(voi, states, rates, variables);
     computeCouplingDependentVariables(voi, states, rates, variables); // with the values received at the last exchange
-    getDelayVariables(voi, dt, states, variables);
+    storeDelayHistories(); // delay variables: values at the end of the time step
     userData->tOld = voi;
 }
 """
@@ -3503,9 +3529,10 @@ void Model0d::solveOneStep(double dtLoc)
 
             solveOneStepFunction += """
     getExternalVariablesVolume(variables);
+    getDelayVariables(voi, dt, states, variables);
     computeNonExternalVariables(voi, states, rates, variables);
     computeCouplingDependentVariables(voi, states, rates, variables); // with the values received at the last exchange
-    getDelayVariables(voi, dt, states, variables);
+    storeDelayHistories(); // delay variables: values at the end of the time step
 }
 """
 
@@ -3824,106 +3851,54 @@ PetscErrorCode TSRHSfunc(TS ts, PetscReal t, Vec Y, Vec Ydot, void *ctx)
         """
 
 
-        circularBufferHeader = f"""
+        delayHistoryHeader = """
+#include <deque>
+#include <utility>
+#include <algorithm>
 
-class circular_buffer {{
-private:
-    int size;
-    int head;
-    int tail;
-    double *buffer;
-
+// History of a variable to delay: its values at the end of the time steps (of any length), to compute its delayed
+// value by linear interpolation (see Model0d::getDelayVariables()).
+class DelayHistory {
 public:
-    circular_buffer(int size);
-    void put(double value);
-    double get();
-    double access(int index_back);
-}};
+    void reset(double t, double value);   // a single value, also used before t (initial value of the variable)
+    void add(double t, double value);     // value at the end of a time step
+    double valueAt(double t) const;       // linear interpolation (first or last value outside the history)
+    void dropBefore(double t);            // drop the values before t that are no longer needed
+private:
+    std::deque<std::pair<double, double>> points; // (time, value), with increasing times
+};
         """
 
-        circularBuffer = f"""
-// circular buffer implementation
-circular_buffer::circular_buffer(int size)
-{{
-this->size = size;
-this->head = 0;
-this->tail = 0;
-this->buffer = new double[size];
-}}
+        delayHistoryCode = """
+// History of a variable to delay (see the class in the header)
+void DelayHistory::reset(double t, double value)
+{
+    points.clear();
+    points.emplace_back(t, value);
+}
 
-void circular_buffer::put(double value)
-{{
-buffer[head] = value;
-head = (head + 1) % size;
-// if (head == tail)
-//  tail = (tail + 1) % size;
-}}
+void DelayHistory::add(double t, double value)
+{
+    // a time step ending at or before the last time stored replaces the values from that time on
+    while (!points.empty() && points.back().first >= t) points.pop_back();
+    points.emplace_back(t, value);
+}
 
-double circular_buffer::get()
-{{
-double value = buffer[tail];
-tail = (tail + 1) % size;
-return value;
-}}
+double DelayHistory::valueAt(double t) const
+{
+    if (t <= points.front().first) return points.front().second;
+    if (t >= points.back().first) return points.back().second;
+    auto after = std::upper_bound(points.begin(), points.end(), t,
+                                  [](double tt, const std::pair<double, double>& p) { return tt < p.first; });
+    auto before = after - 1;
+    return before->second + (t - before->first)/(after->first - before->first)*(after->second - before->second);
+}
 
-double circular_buffer::access(int index_back)
-{{
-double value = buffer[tail + index_back];
-return value;
-}}
-
-        """
-
-
-        # generate a global singleton class to store external variables
-        bufferParts = f"""
-
-void Model0d::initBuffers(double dt)
-{{
-// Here I need to initialise circular buffers for each external variable   
-        """
-        if len(variables_to_delay_info) > 0:
-            for ext_variable in external_variable_info:
-                print(ext_variable.keys())
-                if ext_variable['variable_type'] == 'delay':
-                    index = ext_variable['delay_variable_index']
-                    delay_amount_index = ext_variable['delay_amount_index']
-                    bufferParts += f'  double buffer_size = static_cast<double>(variables[{delay_amount_index}])/dt;\n' 
-                    bufferParts += f'  circular_buffer* var_circular_buffer;\n'
-                    bufferParts += f'  var_circular_buffer = new circular_buffer(buffer_size);\n'
-                    bufferParts += f'  std::ostringstream ss;\n'
-                    bufferParts += f'  ss << {index};\n'
-                    bufferParts += f'  circular_buffer_dict[ss.str()] = var_circular_buffer;\n'
-                    bufferParts += f'  buffersInitialised = true;\n'
-                    bufferParts += f'  }}\n'
-        else:
-            bufferParts += f'  buffersInitialised = true;\n'
-            bufferParts += f'  }}\n'
-
-        bufferParts += f""" 
-
-void Model0d::storeBufferVariable(int index, double value)
-{{
-// Here I need to store the value in the correct circular buffer    
-std::ostringstream ss;
-ss << index;
-circular_buffer_dict[ss.str()]->put(value);
-}}
-
-double Model0d::getBufferVariable(int index, double dt_fraction, int pop_bool)
-{{
-// Here I need to get the value from the correct circular buffer
-std::ostringstream ss;
-ss << index;
-if (pop_bool == 1) {{
-    return circular_buffer_dict[ss.str()]->get();
-}} else {{
-    double value_one_back = circular_buffer_dict[ss.str()]->access(-1);
-    double value = circular_buffer_dict[ss.str()]->access(0);
-    double interp_value = value_one_back + dt_fraction*(value - value_one_back);
-    return interp_value;
-}}
-}}
+void DelayHistory::dropBefore(double t)
+{
+    // keep the last value at or before t, needed to interpolate at t
+    while (points.size() > 1 && points[1].first <= t) points.pop_front();
+}
 
         """
 
@@ -3963,10 +3938,6 @@ int main(int argc, char* argv[]){
     model0d_inst.voi = 0.0;
     model0d_inst.dt = dt;
     model0d_inst.initialiseVariablesAndComputeConstants();
-    """
-        if len(variables_to_delay_info) > 0:
-            mainScript += """
-    model0d_inst.initBuffers(dt);
     """
         mainScript += """
     // all the times are rounded to the grid of tolTime, as the time of the model (see roundTime())
@@ -4036,15 +4007,15 @@ int main(int argc, char* argv[]){
         with open(os.path.join(self.cpp_generated_models_dir, f'{self.output_cpp_file_name}.h'), 'w') as f:
 
             f.write(preHeaderStuff) 
-            if len(variables_to_delay_info) > 0:
-                f.write(circularBufferHeader)
+            if delay_variables:
+                f.write(delayHistoryHeader)
             f.write(interFaceCodePreClass)
             f.write(classInitHeader)
             f.write(interFaceCodeInClass)
             # f.write(externalInteractionHeaders)
             f.write(otherHeaderInits)
-            if len(variables_to_delay_info) > 0:
-                f.write(bufferPartsHeader)
+            if delay_variables:
+                f.write(delayHistoriesMember)
             f.write(classFinisherHeader)
             f.write(userDataHeader)
    
@@ -4068,9 +4039,8 @@ int main(int argc, char* argv[]){
             f.write(solveOneStepFunction)
             f.write(UserDataCC)
             
-            if len(variables_to_delay_info) > 0:
-                f.write(circularBuffer)
-                f.write(bufferParts)
+            if delay_variables:
+                f.write(delayHistoryCode)
             
             # if self.create_main:
             if (self.create_main and not self.couple_to_1d):
