@@ -146,7 +146,13 @@ class YamlFileParser(object):
             inp_data_dict['generated_models_dir'] = os.path.join(user_files_dir, inp_data_dict['generated_models_dir'])
         else:
             inp_data_dict['generated_models_dir'] = os.path.join(root_dir, 'generated_models')
-        
+        # paths of the cpp files and of the 1d input file of a cpp model (coupled to a 1d model): relative to the user
+        # inputs file, as the folders above, and absolute, as they are written into the generated run files
+        # (coupler_config.json, the run script, input.ini), which are used from other folders
+        for path_key in ('cpp_generated_models_dir', 'model_1d_config_path', 'cpp_1d_model_config_path'):
+            if inp_data_dict.get(path_key):
+                inp_data_dict[path_key] = os.path.abspath(os.path.join(user_files_dir, inp_data_dict[path_key]))
+
         if obs_path_needed:
             if 'param_id_obs_path' in inp_data_dict.keys():
                 inp_data_dict['param_id_obs_path'] = os.path.join(user_files_dir, inp_data_dict['param_id_obs_path'])
@@ -177,10 +183,12 @@ class YamlFileParser(object):
             inp_data_dict['generated_models_subdir'] = os.path.join(inp_data_dict['generated_models_dir'], file_prefix)
         
         if not os.path.exists(inp_data_dict['generated_models_dir']):
-            os.mkdir(inp_data_dict['generated_models_dir'])
+            # os.mkdir(inp_data_dict['generated_models_dir'])
+            os.makedirs(inp_data_dict['generated_models_dir'], exist_ok=True)
 
         if not os.path.exists(inp_data_dict['generated_models_subdir']):
-            os.mkdir(inp_data_dict['generated_models_subdir'])
+            # os.mkdir(inp_data_dict['generated_models_subdir'])
+            os.makedirs(inp_data_dict['generated_models_subdir'], exist_ok=True)
             
         if 'model_type' not in inp_data_dict.keys():
             inp_data_dict['model_type'] = 'cellml_only'
@@ -515,7 +523,8 @@ def get_solver_info_default(model_type):
     if model_type == 'cpp':
         return {
             'solver': 'CVODE',
-            'MaximumStep': 0.001
+            'MaximumStep': 0.001,
+            'MaximumNumberOfSteps': 5000 # CVODE: maximum number of internal steps in one time step of the cpp solver
         }
     raise ValueError(f'Invalid model type: {model_type}')
 

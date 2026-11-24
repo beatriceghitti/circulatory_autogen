@@ -13,7 +13,7 @@ import os
 import sys
 import json
 from sys import exit
-generators_dir_path = os.path.dirname(__file__)
+generators_dir_path = os.path.dirname(os.path.abspath(__file__)) # absolute: written into the generated run files
 root_dir = os.path.join(generators_dir_path, '../..')
 sys.path.append(os.path.join(root_dir, 'src'))
 from generators.CVSCellMLGenerator import CVS0DCellMLGenerator
@@ -472,8 +472,9 @@ class CVS0DCppGenerator(object):
 
         self.external_headers = []
         
-        if self.couple_to_1d:    
-            self.model_1d_config_path = model_1d_config_path
+        if self.couple_to_1d:
+            # absolute paths: they are written into coupler_config.json and the run script, which run from other folders
+            self.model_1d_config_path = os.path.abspath(model_1d_config_path) if model_1d_config_path else model_1d_config_path
             self.create_main = create_main_0d
             # self.external_headers += ['model1d.h']
         else:
@@ -486,11 +487,16 @@ class CVS0DCppGenerator(object):
                 self.cpp_generated_models_dir = self.generated_model_subdir
         else:
             self.cpp_generated_models_dir = cpp_generated_models_dir
-            if self.couple_to_1d and 'fvm' in cpp_generated_models_dir:
+            # (the name of the cpp folder only, not of its parent folders)
+            if self.couple_to_1d and 'fvm' in os.path.basename(os.path.normpath(cpp_generated_models_dir)):
                 self.external_headers += ['model1d.h']
-        
+        # absolute path: written into coupler_config.json, the run script and main0d.cpp (results folder), which are
+        # used from other folders (the run script changes directory)
+        self.cpp_generated_models_dir = os.path.abspath(self.cpp_generated_models_dir)
+
         if not os.path.exists(self.cpp_generated_models_dir):
-            os.mkdir(self.cpp_generated_models_dir)
+            # os.mkdir(self.cpp_generated_models_dir)
+            os.makedirs(self.cpp_generated_models_dir, exist_ok=True)
         
         self.solver = solver
         # PETSc time integration scheme (with the PETSc ODE solver), see get_petsc_solver()
@@ -795,12 +801,8 @@ class CVS0DCppGenerator(object):
                             print("FV1D vessel idx found", out_vessel, fv1d_vessel_index)
 
                         elif len(fv1d_vessel_index)==1:
+                            # index of the 1d vessel in the 1d vessel array, written in its name (any number of digits)
                             fv1d_vessel_index = fv1d_vessel_index[0]
-                            if len(fv1d_vessel_index) != 1:
-                                print(f"annotate_cellml :: ERROR: FV1D vessel idx is not written correctly",
-                                    "should be of format FV1D_#, or FV1D_##, etc",
-                                    out_vessel, fv1d_vessel_index)
-                                exit(1)
                             
                             # best to do a sanity check, for compatibility between Finbar's old code and Bea's new code
                             idx1 = -1
@@ -813,9 +815,11 @@ class CVS0DCppGenerator(object):
                             if idx1==-1:
                                 print(f"annotate_cellml :: ERROR: idx of 1D FV vessel {out_vessel} connected to 0D module {vessel_tup.name} not found.")
                                 exit(1)
-                            if fv1d_vessel_index != str(idx1):
-                                print(f"annotate_cellml :: ERROR: different idx of 1D FV vessel {out_vessel} found: {fv1d_vessel_index} {str(idx1)}")
+                            if int(fv1d_vessel_index) != idx1: # as numbers (e.g. FV1D_07 is index 7)
+                                print(f"annotate_cellml :: ERROR: the index in the name of the 1D FV vessel {out_vessel} ({fv1d_vessel_index}) "
+                                      f"is not its index in the 1D vessel array ({idx1})")
                                 exit(1)
+                            fv1d_vessel_index = str(idx1)
                             
                             fv1d_vessel_index_list.append([out_vessel, fv1d_vessel_index])
 
@@ -851,12 +855,8 @@ class CVS0DCppGenerator(object):
                             print("FV1D vessel idx found", inp_vessel, fv1d_vessel_index)
                             
                         elif len(fv1d_vessel_index)==1:
+                            # index of the 1d vessel in the 1d vessel array, written in its name (any number of digits)
                             fv1d_vessel_index = fv1d_vessel_index[0]
-                            if len(fv1d_vessel_index) != 1:
-                                print(f"annotate_cellml :: ERROR: FV1D vessel idx is not written correctly",
-                                    "should be of format FV1D_#, or FV1D_##, etc",
-                                    inp_vessel, fv1d_vessel_index)
-                                exit(1)
 
                             # best to do a sanity check, for compatibility between Finbar's old code and Bea's new code
                             idx1 = -1
@@ -869,9 +869,11 @@ class CVS0DCppGenerator(object):
                             if idx1==-1:
                                 print(f"annotate_cellml :: ERROR: idx of 1D FV vessel {inp_vessel} connected to 0D module {vessel_tup.name} not found.")
                                 exit(1)
-                            if fv1d_vessel_index != str(idx1):
-                                print(f"annotate_cellml :: ERROR: different idx of 1D FV vessel {inp_vessel} found: {fv1d_vessel_index} {str(idx1)}")
+                            if int(fv1d_vessel_index) != idx1: # as numbers (e.g. FV1D_07 is index 7)
+                                print(f"annotate_cellml :: ERROR: the index in the name of the 1D FV vessel {inp_vessel} ({fv1d_vessel_index}) "
+                                      f"is not its index in the 1D vessel array ({idx1})")
                                 exit(1)
+                            fv1d_vessel_index = str(idx1)
 
                             fv1d_vessel_index_list.append([inp_vessel, fv1d_vessel_index])
                         
@@ -1724,10 +1726,9 @@ class CVS0DCppGenerator(object):
 
         #XXX saving final 1d-0d connectvity information in generated model directory
         if self.conn_1d_0d_info is not None and self.couple_to_1d:
-            if self.file_prefix.endswith("_0d"):
-                json_filename = self.file_prefix[:-3]+"_coupler1d0d.json"
-            else:
-                json_filename = self.file_prefix+"_coupler1d0d.json"
+            # named after the whole file_prefix, as the coupler reads <networkName>_coupler1d0d.json with
+            # networkName = file_prefix (coupler_config.json), and the 1d solver its own copy with the same name
+            json_filename = self.file_prefix+"_coupler1d0d.json"
             
             # vess1d_name is used only by the generators (the coupler reads this file as integer values only)
             conn_1d_0d_info_json = {k: {kk: vv for kk, vv in conn.items() if kk != "vess1d_name"}
@@ -4091,9 +4092,7 @@ int main(int argc, char* argv[]){
                         line = line.replace('// ', '')
 
                 if 'std::string resFold =' in line:
-                    model_name = self.file_prefix
-                    if self.file_prefix.endswith("_0d"):
-                        model_name = self.file_prefix[:-3]
+                    model_name = self.file_prefix # results in simulation_outputs_cpp/<file_prefix>/
                     # results0d_folder = os.path.join(self.cpp_generated_models_dir+"/../..", f"simulation_outputs_cpp/{model_name}/")
                     results0d_folder = os.path.join(self.cpp_generated_models_dir+"/../..", f"simulation_outputs_cpp/")
                     if not os.path.exists(results0d_folder):
@@ -4164,18 +4163,20 @@ int main(int argc, char* argv[]){
                 f.write(makefileScript)
 
             # bash script to build and run the 0d solver
-            with open(os.path.join(generators_dir_path, '../makefiles_cpp/cpp_0d/'+runfile), 'r') as file:
+            source = os.path.join(generators_dir_path, '../makefiles_cpp/cpp_0d/'+runfile)
+            with open(source, 'r') as file:
                 lines = file.readlines()
 
-            runfileScript = """
-"""
+            runfileScript = "" # no empty line before the first line '#!/bin/bash'
             for line in lines:
                 if 'model0d' in line:
                     line = line.replace('model0d', self.output_cpp_file_name)
                 runfileScript += line
 
-            with open(os.path.join(self.cpp_generated_models_dir, runfile), 'w') as f:
+            destination = os.path.join(self.cpp_generated_models_dir, runfile)
+            with open(destination, 'w') as f:
                 f.write(runfileScript)
+            shutil.copymode(source, destination) # executable, as the template
         
         else:
             if self.solver == 'PETSC':
@@ -4201,11 +4202,11 @@ int main(int argc, char* argv[]){
             # shutil.copy2(source, destination)
 
             # bash script to build and run the 1d-0d coupled solver
-            with open(os.path.join(generators_dir_path, '../makefiles_cpp/cpp_hybrid/'+runfile_coupler), 'r') as file:
+            source = os.path.join(generators_dir_path, '../makefiles_cpp/cpp_hybrid/'+runfile_coupler)
+            with open(source, 'r') as file:
                 lines = file.readlines()
 
-            runfileScript = """
-"""
+            runfileScript = "" # no empty line before the first line '#!/bin/bash'
             for line in lines:
                 if ('USE_PETSC' in line and self.solver == 'PETSC'):
                     line = line.replace('USE_PETSC=0', 'USE_PETSC=1')
@@ -4218,8 +4219,10 @@ int main(int argc, char* argv[]){
                     # print(line)
                 runfileScript += line
 
-            with open(os.path.join(self.cpp_generated_models_dir, runfile_coupler), 'w') as f:
+            destination = os.path.join(self.cpp_generated_models_dir, runfile_coupler)
+            with open(destination, 'w') as f:
                 f.write(runfileScript)
+            shutil.copymode(source, destination) # executable, as the template
 
             # coupler configuration file
             with open(os.path.join(generators_dir_path, '../makefiles_cpp/cpp_hybrid/coupler_configTemplate.json'), 'r') as file:
@@ -4275,18 +4278,14 @@ class CVS1DPythonGenerator(object):
 
         self.model = model
         self.file_prefix = file_prefix
-        self.initFile1d = model_1d_config_path
+        # absolute path: its folder is written into input.ini (testFold), which the 1d solver reads from another folder
+        self.initFile1d = os.path.abspath(model_1d_config_path)
         
-        self.run1dFold = os.path.dirname(model_1d_config_path)
-        parent1dFold = os.path.dirname(self.run1dFold)
-        if not os.path.exists(parent1dFold):
-            os.mkdir(parent1dFold)
-        if not os.path.exists(self.run1dFold):
-            os.mkdir(self.run1dFold)
-        
+        self.run1dFold = os.path.dirname(self.initFile1d)
         self.initFiles1dFold = self.run1dFold+'/input_files'
-        if not os.path.exists(self.initFiles1dFold):
-            os.mkdir(self.initFiles1dFold)
+        # creates the 1d run folder and its input_files folder, with all their missing parent folders
+        # (e.g. files_1d/<model>/run000/input_files when files_1d does not exist yet)
+        os.makedirs(self.initFiles1dFold, exist_ok=True)
 
         # print(self.file_prefix)
         # print(self.initFile1d)
@@ -4310,6 +4309,7 @@ class CVS1DPythonGenerator(object):
             self.cpp_generated_models_dir = self.generated_model_subdir + "_cpp"
         else:
             self.cpp_generated_models_dir = cpp_generated_models_dir
+        self.cpp_generated_models_dir = os.path.abspath(self.cpp_generated_models_dir) # as in CVS0DCppGenerator
 
         self.csv_parser = CSVFileParser()
         self.vessels_df = self.csv_parser.get_data_as_dataframe_multistrings(vessels1d_csv_abs_path, True) 
