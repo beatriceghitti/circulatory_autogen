@@ -111,7 +111,7 @@ class YamlFileParser(object):
                     print(f"User inputs file not found at {inp_data_dict['user_inputs_path_override']}")
                     print("Check the user_inputs_path_override key in user_inputs.yaml and set it to False if "
                             "you want to use the default user_inputs.yaml location")
-                    exit()
+                    sys.exit(1)
             else:
                 user_files_dir = ''
         else:
@@ -119,11 +119,11 @@ class YamlFileParser(object):
 
         if inp_data_dict is None:
             print('no inp_data_dict provided and user_inputs.yaml not found, exiting')
-            exit()
+            sys.exit(1)
             
         if 'file_prefix' not in inp_data_dict.keys():
             print('file_prefix not found in inp_data_dict, exiting')
-            exit()
+            sys.exit(1)
         else:
             file_prefix = inp_data_dict['file_prefix']
 
@@ -152,7 +152,7 @@ class YamlFileParser(object):
                 inp_data_dict['param_id_obs_path'] = os.path.join(user_files_dir, inp_data_dict['param_id_obs_path'])
                 if not os.path.exists(inp_data_dict['param_id_obs_path']):
                     print(f'param_id_obs_path={inp_data_dict["param_id_obs_path"]} does not exist')
-                    exit()
+                    sys.exit(1)
             else:
                 print(f'param_id_obs_path not defined in user_inputs.yaml')
                 print(f'Must run param_id.create_param_id_obs to create the param_id_observables')
@@ -193,7 +193,7 @@ class YamlFileParser(object):
             model_ext = '.cpp'
         else:
             print(f'Invalid model type: {inp_data_dict.get("model_type")}')
-            exit()
+            sys.exit(1)
 
         inp_data_dict['model_path'] = os.path.join(inp_data_dict['generated_models_subdir'], f'{file_prefix}{model_ext}')
 
@@ -211,7 +211,7 @@ class YamlFileParser(object):
                 inp_data_dict['dt'] = float(inp_data_dict['dt'])
             if type(inp_data_dict['dt']) != float:
                 print(f'dt must be a float, but is {type(inp_data_dict["dt"])}')
-                exit()
+                sys.exit(1)
             
         if 'pre_time' in inp_data_dict.keys():
             inp_data_dict['pre_time'] = inp_data_dict['pre_time']
@@ -246,13 +246,13 @@ class YamlFileParser(object):
                 solver_name = 'CVODE'
             else:
                 print(f'Invalid model type: {inp_data_dict.get("model_type")}')
-                exit()
+                sys.exit(1)
         else:
             if (solver_name not in valid_cellml_solvers and
                 solver_name not in valid_cpp_solvers and
                 solver_name not in valid_python_solvers):
                 print(f'Invalid solver: {solver_name}')
-                exit()
+                sys.exit(1)
         
 
         if 'solver_info' not in inp_data_dict.keys(): 
@@ -328,7 +328,7 @@ class YamlFileParser(object):
             print(f'Valid CellML solvers: {valid_cellml_solvers}')
             print(f'Valid Python solvers: {valid_python_solvers}')
             print(f'Valid Cpp solvers: {valid_cpp_solvers}')
-            exit()
+            sys.exit(1)
         
         
         # Validate solver-model compatibility
@@ -336,7 +336,7 @@ class YamlFileParser(object):
         if inp_data_dict.get('model_type') == 'python' and solver_name not in valid_python_solvers:
                 print(f'CellML solver {solver_method} cannot be used with Python models (model_type="python")')
                 print(f'Use {valid_python_solvers} for Python models')
-                exit()
+                sys.exit(1)
 
         # solve_ivp methods can only be used with Python models
         if solver_method in valid_solve_ivp_methods:
@@ -344,14 +344,14 @@ class YamlFileParser(object):
                 print(f'solve_ivp method {solver_method} requires model_type to be "python"')
                 print('Use CVODE or CVODE_myokit for CellML models')
                 print('Use CVODE or RK4 or PETSC for Cpp models')
-                exit()
+                sys.exit(1)
 
         if solver_method in valid_cpp_solvers and solver_method not in valid_cellml_solvers:
             if inp_data_dict.get('model_type') != 'cpp':
                 print(f'Cpp solver {solver_method} can only be used with Cpp models (model_type="cpp")')
                 print('Use CVODE or CVODE_myokit for CellML models')
                 print('Use a solve_ivp method (RK45, RK4, etc.) for Python models')
-                exit()
+                sys.exit(1)
 
         if 'DEBUG' in inp_data_dict.keys(): 
             if inp_data_dict['DEBUG']:
@@ -376,7 +376,7 @@ class YamlFileParser(object):
             # check if external_modules_dir is a valid directory
             if not os.path.exists(inp_data_dict['external_modules_dir']):
                 print(f'external_modules_dir={inp_data_dict["external_modules_dir"]} does not exist')
-                exit()
+                sys.exit(1)
         
         # for sensitivity analysis and parameter identification
         if not 'sa_options' in inp_data_dict.keys():
@@ -708,13 +708,13 @@ class JSONFileParser(object):
             BC_type = vessel_tup.BC_type
             if len(BC_type) <1 or len(vessel_type) <1:
                 print('You have an empty entry in your vessel array, exiting')
-                exit()
+                sys.exit(1)
             this_vessel_module_df = module_df.loc[((module_df["vessel_type"] == vessel_type)
                                                    & (module_df["BC_type"] == BC_type))].squeeze()
             if this_vessel_module_df.empty:
                 print(f'combination of vessel_type = {vessel_type} and BC_type = {BC_type} doesn\'t exist, check module_config.json',
                         'for this combination')
-                exit()
+                sys.exit(1)
             for column in add_on_lists:
                 # deepcopy to make sure that the lists for different vessel same module are not linked
                 val = this_vessel_module_df[column]
@@ -788,15 +788,15 @@ class ObsAndParamDataParser(object):
                     print("protocol_info not found in json object. ",
                           "If this is the case sim_time and pre_time must be set",
                           "in the user_inputs.yaml file")
-                    exit()
+                    sys.exit(1)
                 protocol_info = {"pre_times": [pre_time], "sim_times": [[sim_time]], "params_to_change": {}}
 
             # Load Prediction Info
             if 'prediction_items' in json_obj.keys():
                 prediction_info = {'names': [], 'units': [], 'names_for_plotting': [], 'experiment_idxs': []}
                 for entry in json_obj['prediction_items']:
-                    if 'variable' not in entry: print('"variable" missing, exiting'); exit()
-                    if 'unit' not in entry: print('"unit" missing, exiting'); exit()
+                    if 'variable' not in entry: print('"variable" missing, exiting'); sys.exit(1)
+                    if 'unit' not in entry: print('"unit" missing, exiting'); sys.exit(1)
                     
                     prediction_info['names'].append(entry['variable'])
                     prediction_info['units'].append(entry['unit'])
@@ -949,7 +949,7 @@ class ObsAndParamDataParser(object):
             if gt_df.iloc[II]["data_type"] == "series":
                 if "obs_dt" not in gt_df.iloc[II].keys():
                     print("dt not found in obs_data.json for series data, exiting")
-                    exit()
+                    sys.exit(1)
                 dt_list.append(gt_df.iloc[II]["obs_dt"])
         
         obs_info["obs_dt"] = np.array(dt_list)
@@ -958,7 +958,7 @@ class ObsAndParamDataParser(object):
             if min(obs_info["obs_dt"]) < dt:
                 print("one of the dt in obs_data.json is less than the dt in user_inputs.yaml, the output timestep"
                     "defined in user_inputs.yaml must be less than the smallest dt for your data. Exiting")
-                exit()
+                sys.exit(1)
 
         # The std for the different observables
         obs_info["std_const_vec"] = np.array([gt_df.iloc[II]["std"] for II in range(gt_df.shape[0])
@@ -1055,13 +1055,13 @@ class ObsAndParamDataParser(object):
             protocol["experiment_colors"] = ['r'] * N_exp
         elif len(protocol["experiment_colors"]) != N_exp:
             print('Error: experiment_colors length does not match num_experiments, exiting')
-            exit()
+            sys.exit(1)
             
         if "experiment_labels" not in protocol:
             protocol["experiment_labels"] = [None] * N_exp
         elif len(protocol["experiment_labels"]) != N_exp:
             print('Error: experiment_labels length does not match num_experiments, exiting')
-            exit()
+            sys.exit(1)
 
         # --- Weight Mapping Initialization ---
         

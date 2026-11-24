@@ -74,11 +74,22 @@ all: $(TARGET)
 $(TARGET): $(OBJ)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
 
-%.o: %.cc
-	$(CXX) $(CXXFLAGS) -c $< -o $@
-%.o: %.cpp
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+# Header dependencies: when compiling, the compiler also writes a .d file next to each object file (-MMD), listing
+# the headers it includes (model0d.h, coupler_mpi_common.h), so that make recompiles the object file when one of
+# them changes, e.g. after regenerating the model, without 'make clean'. -MP: a header that no longer exists does not
+# stop make. An object file without its .d file (e.g. built before) is recompiled once.
+DEPFLAGS = -MMD -MP
+DEPS := $(OBJ:.o=.d)
+
+%.o: %.cc %.d
+	$(CXX) $(CXXFLAGS) $(DEPFLAGS) -c $< -o $@
+%.o: %.cpp %.d
+	$(CXX) $(CXXFLAGS) $(DEPFLAGS) -c $< -o $@
+
+# .d files: written by the compiler (no rule to make them), and read only if they exist
+$(DEPS):
+include $(wildcard $(DEPS))
 
 # Clean
 clean:
-	$(RM) $(OBJ) $(TARGET)
+	$(RM) $(OBJ) $(DEPS) $(TARGET)

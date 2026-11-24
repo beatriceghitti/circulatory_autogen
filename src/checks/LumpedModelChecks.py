@@ -4,6 +4,7 @@ Created on 01/11/2021
 @author: Finbar Argus, Gonzalo D. Maso Talou
 '''
 
+import sys
 from abc import ABC, abstractmethod
 
 class AbstractLumpedCheck(ABC):
@@ -64,7 +65,7 @@ class LumpedBCVesselCheck(AbstractLumpedCheck):
         if (vessel_row["vessel_type"], vessel_row["BC_type"]) not in model_0D.possible_vessel_BC_types:
             print(f'vessel_type, BC_type combo of ({vessel_row["vessel_type"]}, {vessel_row["BC_type"]}) '
                   f'is not allowed for vessel {vessel_row["name"]}')
-            exit()
+            sys.exit(1)
 
 class LumpedIDParamsCheck(AbstractLumpedCheck):
     '''
@@ -79,7 +80,7 @@ class LumpedIDParamsCheck(AbstractLumpedCheck):
         for const_name, _ in model_0D.param_id_name_and_vals:
             if not const_name in model_0D.parameters_array['variable_name']:
                 print(f'ERROR parameter id constant of {const_name} is not defined in the parameters file')
-                exit()
+                sys.exit(1)
 
 class LumpedPortVariableCheck(AbstractLumpedCheck):
     '''
@@ -103,7 +104,7 @@ class LumpedPortVariableCheck(AbstractLumpedCheck):
                 if port_variable not in variables_list:
                     print(f'the port variable {port_variable} '
                         f'is not a variable for vessel type: {vessel_row["vessel_type"]}, BC_type: {vessel_row["BC_type"]}')
-                    exit()
+                    sys.exit(1)
 
 #    Example of usage
 #    Contructs a multiple check with only a LumpedBCVesselCheck 

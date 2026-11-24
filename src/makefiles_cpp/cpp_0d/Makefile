@@ -38,12 +38,23 @@ all: $(TARGET)
 $(TARGET): $(OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS) $(LDLIBS)
 
+# Header dependencies: when compiling, the compiler also writes a .d file next to each object file (-MMD), listing
+# the headers it includes (the model header), so that make recompiles the object file when one of
+# them changes, e.g. after regenerating the model, without 'make clean'. -MP: a header that no longer exists does not
+# stop make. An object file without its .d file (e.g. built before) is recompiled once.
+DEPFLAGS = -MMD -MP
+DEPS := $(OBJS:.o=.d)
+
 # Compile source files
-%.o: %.cpp
-	$(CXX) $(CXXFLAGS) -c $< -o $@
-%.o: %.cc
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+%.o: %.cpp %.d
+	$(CXX) $(CXXFLAGS) $(DEPFLAGS) -c $< -o $@
+%.o: %.cc %.d
+	$(CXX) $(CXXFLAGS) $(DEPFLAGS) -c $< -o $@
+
+# .d files: written by the compiler (no rule to make them), and read only if they exist
+$(DEPS):
+include $(wildcard $(DEPS))
 
 # Clean
 clean:
-	rm -f $(OBJS) $(TARGET)
+	rm -f $(OBJS) $(DEPS) $(TARGET)

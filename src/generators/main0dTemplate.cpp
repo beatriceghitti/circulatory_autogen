@@ -61,6 +61,7 @@ int main(int argc, char* argv[]) {
     // The communicator of PETSc must only contain the 0d solver, not the whole coupled MPI job.
     // PETSC_COMM_WORLD = comm0d;
     // ierr = PetscInitialize(&argc, &argv, NULL, NULL);
+    // if (ierr != PETSC_SUCCESS) { std::cerr << "0d solver :: ERROR: PetscInitialize failed with error code " << ierr << std::endl; MPI_Abort(MPI_COMM_WORLD, 1); }
     // std::cout << "0d solver :: PETSc initialization complete : " << ierr << std::endl;
 
     std::cout << "0d solver :: is_coupled : " << is_coupled << std::endl;

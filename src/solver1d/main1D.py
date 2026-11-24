@@ -111,10 +111,10 @@ def run1DBFmod(AICstate=[], QICstate=[]):
     
     if init_file is None:
         print(f"1d solver :: Error: path to 1d simulation initialisation file is {init_file}. Exiting.")
-        exit()
+        sys.exit(1)
     if not os.path.exists(init_file):
         print(f"1d solver :: Error: 1d simulation initialisation file {init_file} does not exist. Exiting.")
-        exit()
+        sys.exit(1)
 
     config = ConfigParser(allow_no_value=True, delimiters=(':',)) # delimiters=('=', ':')
     config.optionxform = str  # keep keys case-sensitive
@@ -1182,7 +1182,7 @@ def run1DBFmod(AICstate=[], QICstate=[]):
 
                         if round(np.sum(weights),8)>1.0:
                             print("1d solver :: ERROR: Sum of integration weights > 1 : ", np.sum(weights), round(np.sum(weights),8), weights)
-                            sys.exit()
+                            sys.exit(1)
 
                     # print("1d solver :: sub-step ", count, " || ", time, dt, " || ", timeLoc, dtLoc, " || ",  (time+dt), timeLoc)
 
@@ -1198,7 +1198,7 @@ def run1DBFmod(AICstate=[], QICstate=[]):
                         if "port_volume_sum" in pipe_1d_0d_info[pipeID]:
                             if pipe_1d_0d_info[pipeID]["port_volume_sum"] == 1:
                                 print("1d solver :: ERROR: this is a volume sum port, use its dedicated messages for this connection. Exiting.")
-                                sys.exit()
+                                sys.exit(1)
 
                         parent_data.append( parent_data_all[i] )
 

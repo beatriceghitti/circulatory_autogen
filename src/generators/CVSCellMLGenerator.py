@@ -460,7 +460,7 @@ class CVS0DCellMLGenerator(object):
                             count += 1
                             if count > 50:
                                 print(f'Error in {module_file_path}, no component found')
-                                exit()
+                                exit(1)
 
                     # skip last line so enddef; doesn't get written till the end.
                     # skip first non-component lines
@@ -517,12 +517,12 @@ class CVS0DCellMLGenerator(object):
             if "venous_ivc" not in vessel_df.loc[vessel_df["name"] == 'heart'].inp_vessels.values[0] and \
                     "venous_svc" not in vessel_df.loc[vessel_df["name"] == 'heart'].inp_vessels.values[0]:
                 print('either venous_ivc, or venous_svc, or both must be inputs to the heart, exiting')
-                exit()
+                exit(1)
         elif len(vessel_df.loc[vessel_df["name"] == 'heart']) < 1:
             pass
         elif len(vessel_df.loc[vessel_df["name"] == 'heart']) > 1:
             print('you have declared more that one heart module, exiting')
-            exit()
+            exit(1)
 
     def __write_module_mappings(self, wf, module_df):
         """This function maps between ports of the modules in a module dataframe."""
@@ -642,7 +642,7 @@ class CVS0DCellMLGenerator(object):
         for inp_module_idx, inp_module in enumerate(module_row["inp_vessels"]):
             if not (module_df["name"] == inp_module).any():
                 print(f'the input module of {inp_module} is not defined')
-                exit()
+                exit(1)
             inp_module_row = module_df.loc[module_df["name"] == inp_module].squeeze()
             inp_module_BC_type = inp_module_row["BC_type"]
             inp_module_type = inp_module_row["module_type"]
@@ -654,7 +654,7 @@ class CVS0DCellMLGenerator(object):
         for out_module_idx, out_module in enumerate(module_row["out_vessels"]):
             if not (module_df["name"] == out_module).any():
                 print(f'the output module of {out_module} is not defined')
-                exit()
+                exit(1)
             out_module_row = module_df.loc[module_df["name"] == out_module].squeeze()
             out_module_BC_type = out_module_row["BC_type"]
             out_module_type = out_module_row["module_type"]
@@ -727,7 +727,7 @@ class CVS0DCellMLGenerator(object):
                     print(f"module {out_module} has a single port {port_types[port_type_idx]['port_type']}, connected",
                           f"to multiple ports. Should it have a multiport:True entry in the",
                           f"module_config.json file??")
-                    exit()
+                    exit(1)
 
                 out_port_idx = None
                 this_type_port_idx = None
@@ -1089,7 +1089,7 @@ class CVS0DCellMLGenerator(object):
                                 print(f'venous input of {venous_name} does not include the terminal vessel '
                                       f'{vessel_name} as an inp_vessel in {self.file_prefix}_vessel_array. '
                                       f'not including terminal names as input has been deprecated')
-                                exit()
+                                exit(1)
                             terminal_names_for_first_venous[idx].append(vessel_name)
                 for idx, tissue_GE_name in enumerate(tissue_GE_names):
                     for II in range(len(vessel_tup.out_vessels)):
@@ -1193,7 +1193,7 @@ class CVS0DCellMLGenerator(object):
                 else:
                     print(f'ERROR :: Min_junction {vess_name} has wrong BC_type {vessel_tup.BC_type}. '
                           f'Exiting')
-                    exit()
+                    exit(1)
 
                 # print(vess_name, vess_BC)
 
@@ -1251,7 +1251,7 @@ class CVS0DCellMLGenerator(object):
                 if len(in_vessel_names) == 0:
                     print(f'ERROR :: Min_junction {vess_name} has NO other vessels connected to its inlet node, '
                           f'even if it is a junction node. Exiting')
-                    exit()
+                    exit(1)
                 else:
                     for k in range(len(in_vessel_names)):
                         # map pressure between current Min_junction vessel and each other vessel converging to the junction 
@@ -1299,7 +1299,7 @@ class CVS0DCellMLGenerator(object):
                     else:
                         print(f'ERROR :: MinNout_junction {vess_name} has wrong BC_type {vessel_tup.BC_type}. '
                             f'Exiting')
-                        exit()
+                        exit(1)
 
                     # print(vess_name, vess_BC)
 
@@ -1361,7 +1361,7 @@ class CVS0DCellMLGenerator(object):
                     if len(in_vessel_names) == 0:
                         print(f'ERROR :: MinNout_junction {vess_name} has NO other vessels connected to it to its inlet node, '
                             f'even if it is a junction node. Exiting')
-                        exit()
+                        exit(1)
                     else:
                         for k in range(len(in_vessel_names)):
                             # map pressure between current Min_junction vessel and each other vessel converging to the junction 
@@ -1448,7 +1448,7 @@ class CVS0DCellMLGenerator(object):
                     if len(out_vessel_names) == 0:
                         print(f'ERROR :: MinNout_junction {vess_name} has NO other vessels connected to its outlet node, '
                             f'even if it is a junction node. Exiting')
-                        exit()
+                        exit(1)
                     else:
                         for k in range(len(out_vessel_names)):
                             # map pressure between current Min_junction vessel and each other vessel converging to the junction 
@@ -1494,7 +1494,7 @@ class CVS0DCellMLGenerator(object):
                     else:
                         print(f'ERROR :: Nout_junction {vess_name} has wrong BC_type {vessel_tup.BC_type}. '
                             f'Exiting')
-                        exit()
+                        exit(1)
 
                     # print(vess_name, vess_BC)
 
@@ -1552,7 +1552,7 @@ class CVS0DCellMLGenerator(object):
                     if len(out_vessel_names) == 0:
                         print(f'ERROR :: Nout_junction {vess_name} has NO other vessels connected to its outlet node, '
                             f'even if it is a junction node. Exiting')
-                        exit()
+                        exit(1)
                     else:
                         for k in range(len(out_vessel_names)):
                             # map pressure between current Min_junction vessel and each other vessel converging to the junction 
@@ -1725,7 +1725,7 @@ class CVS0DCellMLGenerator(object):
             
             if sum_case==-1:
                 print("ERROR :: sum_case is -1 for "+str(idxV)+" "+flow_vess_name+" . Exiting")
-                exit()
+                exit(1)
             else:
                 if sum_case==0:
                     rhs_variables = []
@@ -1827,7 +1827,7 @@ class CVS0DCellMLGenerator(object):
                                             # print(inp_variable_names[-1])
                                         else:
                                             print(f"ERROR No coupling port variable found between {sum_vess_name} and {inp_vessel_name} : {couple_port} . Exiting.")
-                                            exit()
+                                            exit(1)
 
                         vess_to_sum_names.append(inp_vessel_names)
 
@@ -1968,6 +1968,7 @@ class CVS0DCellMLGenerator(object):
                 print('________________ERROR_________________')
                 print(f'Error: Access string of variable {variable} should be either "access" or "no_access".')
                 print('______________________________________')
+                exit(1)
         wf.writelines(lines_to_write)
         wf.write('</component>\n')
     
@@ -2040,7 +2041,7 @@ class CVS0DCellMLGenerator(object):
                     print(f'variable {variable_name} is not in the parameter '
                           f'dataframe/csv file. It needs to be added!!!')
                     print(f'______________________________________')
-                    exit()
+                    exit(1)
         self.__write_mapping(wf, params_with_addon_heading, vessel_name + module_addon,
                              module_vars, vars)
 
@@ -2083,17 +2084,17 @@ class CVS0DCellMLGenerator(object):
                                      main_vessel_type, out_vessel_type):
         if not out_vessel:
             print(f'connection modules incorrectly defined for {main_vessel}')
-            exit()
+            exit(1)
         if main_vessel_type.endswith('terminal'):
             pass
         elif main_vessel not in vessel_df.loc[vessel_df["name"] == out_vessel].inp_vessels.values[0]:
             print(f'"{main_vessel}" and "{out_vessel}" are incorrectly connected, '
                   f'check that they have eachother as output/input')
-            exit()
+            exit(1)
         elif out_vessel not in vessel_df.loc[vessel_df["name"] == main_vessel].out_vessels.values[0]:
             print(f'"{main_vessel}" and "{out_vessel}" are incorrectly connected, '
                   f'check that they have eachother as output/input')
-            exit()
+            exit(1)
         if out_vessel_BC_type.startswith('nn'):
             return
         if main_vessel_BC_type.startswith('nn'):
@@ -2109,7 +2110,7 @@ class CVS0DCellMLGenerator(object):
             if not out_vessel_BC_type.startswith('p'):
                 print(f'"{main_vessel}" output BC is v, the input BC of "{out_vessel}"',
                     ' should be p')
-                exit()
+                exit(1)
         if temp_main_vessel_BC_type.endswith('p'):
             main_out_vessels = vessel_df.loc[vessel_df["name"] == main_vessel].out_vessels.values[0]
             if not out_vessel_BC_type.startswith('v'):
@@ -2133,7 +2134,7 @@ class CVS0DCellMLGenerator(object):
                 if not pass_inp_out_check:
                     print(f'"{main_vessel}" output BC is p, the input BC of "{out_vessel}"',
                     ' should be v')
-                    exit()
+                    exit(1)
 
     def __check_input_output_ports(self, exit_ports, output_general_ports, entrance_ports, input_general_ports, upstream_module, downstream_module):
         # check that input and output modules have a matching port
@@ -2162,7 +2163,7 @@ class CVS0DCellMLGenerator(object):
             print(f'upstream module general ports: {[general_port["port_type"] for general_port in output_general_ports]}')
             print(f'downstream module entrance ports: {[entrance_port["port_type"] for entrance_port in entrance_ports]}')
             print(f'downstream module general ports: {[general_port["port_type"] for general_port in input_general_ports]}')
-            exit()
+            exit(1)
 
     def __write_mapping(self, wf, inp_name, out_name, inp_vars_list, out_vars_list):
         mapping = ['<connection>\n', f'   <map_components component_1="{inp_name}" component_2="{out_name}"/>\n']
@@ -2211,7 +2212,7 @@ class CVS0DCellMLGenerator(object):
         """
         if len(rhs_variables_to_average) != len(rhs_variables_weighting):
             print('rhs_variables_to_average and rhs_variables_weighting must be the same length, exiting')
-            exit()
+            exit(1)
 
         wf.writelines('<math xmlns="http://www.w3.org/1998/Math/MathML">\n'
                       '   <apply>\n'

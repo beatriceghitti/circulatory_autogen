@@ -5,6 +5,7 @@ Created on 29/10/2021
 '''
 
 
+import sys
 from parsers.PrimitiveParsers import CSVFileParser, JSONFileParser
 from models.LumpedModels import CVS0DModel
 from checks.LumpedModelChecks import LumpedCompositeCheck, LumpedBCVesselCheck, LumpedIDParamsCheck, LumpedPortVariableCheck
@@ -189,10 +190,10 @@ class CSV0DModelParser(object):
                                 break
                             else:
                                 print(f"ERROR: wrong BC_type for {out_vess} module OR {out_vess} module incorrectly connected to FV1D_vessel {vess1d}. Check your vessel array file.")
-                                exit()
+                                sys.exit(1)
                     if not found_K_mod:
                         print(f"ERROR: entry for {out_vess} module coupled to FV1D_vessel {vess1d} NOT found. Check your vessel array file.")
-                        exit()
+                        sys.exit(1)
 
 
         self.conn_1d_0d_info = {}
@@ -278,16 +279,16 @@ class CSV0DModelParser(object):
                                     N1d0d += 1
                                 else:
                                     print(f"ERROR :: {inp_vess} found in inp_vessels of 1D vessel {vess1d}, but {vess1d} not found in out_vessels_0d of 0D vessel {inp_vess}")
-                                    exit()
+                                    sys.exit(1)
                         elif len(idx0d)==0:
                             print(f"ERROR :: no index found for {inp_vess} in 1D or 0D vessel array")
-                            exit()
+                            sys.exit(1)
                         elif len(idx0d)>1:
                             print(f"ERROR :: more than one index found for {inp_vess} in 0D vessel array")
-                            exit()
+                            sys.exit(1)
                     else: # TODO
                         print(f"ERROR :: more than one index found for {inp_vess} in 1D vessel array")
-                        exit()
+                        sys.exit(1)
 
             if len(out_vessels)>0:
                 for out_vess in out_vessels:
@@ -358,16 +359,16 @@ class CSV0DModelParser(object):
                                     N1d0d += 1
                                 else: 
                                     print(f"ERROR :: {out_vess} found in out_vessels of 1D vessel {vess1d}, but {vess1d} not found in inp_vessels_0d of 0D vessel {out_vess}")
-                                    exit()
+                                    sys.exit(1)
                         elif len(idx0d)==0:
                             print(f"ERROR :: no index found for {out_vess} in 1D or 0D vessel array")
-                            exit()
+                            sys.exit(1)
                         elif len(idx0d)>1:
                             print(f"ERROR :: more than one index found for {out_vess} in 0D vessel array")
-                            exit()
+                            sys.exit(1)
                     else:
                         print(f"ERROR :: more than one index found for {out_vess} in 1D vessel array")
-                        exit()
+                        sys.exit(1)
 
         # Drop the boundary modules replaced by 1d boundary conditions, and only then set the index of the 0d module of
         # each connection: vess0d_idx is the position of the module in the final vessels_df_0d, which is written to
@@ -452,7 +453,7 @@ class CSV0DModelParser(object):
             pass
         else:
             print('cannot have 2 hearts or more, we dont model octopii')
-            exit()
+            sys.exit(1)
 
 
         module_df = self.json_parser.json_to_dataframe_with_user_dir(self.module_config_dir, self.module_config_user_dir, self.external_modules_dir)
@@ -462,7 +463,7 @@ class CSV0DModelParser(object):
         if not duplicates.empty:
             print("ERROR: Repeated entries of vessel_type and BC_type found in module_config.json:")
             print(duplicates)
-            exit()
+            sys.exit(1)
          
         # add module info to each row of vessel array
         self.json_parser.append_module_config_info_to_vessel_df(vessels_df, module_df)
@@ -572,7 +573,7 @@ class CSV0DModelParser(object):
                           f'for param {new_entry[0]}, exiting \n')
                     print('')
                     actually_exit = True
-                    exit()
+                    sys.exit(1)
 
                 new_entry.insert(2, param_tuple[2])
                 parameters_list.append(new_entry)
@@ -583,14 +584,14 @@ class CSV0DModelParser(object):
                                      'EMPTY_MUST_BE_FILLED', 'EMPTY_MUST_BE_FILLED'])
                 parameters_list.append(new_entry)
                 if actually_exit:
-                    exit()
+                    sys.exit(1)
         if len(parameters_list) == 0:
             return np.empty((len(parameters_list)),
                                     dtype=[('variable_name', 'U80'), ('units', 'U80'),('const_type', 'U80'),
                                            ('value', 'U80'), ('data_reference', 'U80')])
         elif len(set([len(a) for a in parameters_list])) != 1:
             print('parameters rows are of non consistent length, exiting')
-            exit()
+            sys.exit(1)
         parameters_array = np.empty((len(parameters_list)),
                                     dtype=[('variable_name', 'U80'), ('units', 'U80'),('const_type', 'U80'),
                                            ('value', 'U80'), ('data_reference', 'U80')])

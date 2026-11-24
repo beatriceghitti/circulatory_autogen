@@ -440,7 +440,7 @@ class CVS0DCppGenerator(object):
         '''
         if LIBCELLML_available == False:
             print("CVS0DCppGenerator __init__ :: ERROR: LibCellML is not available, cannot generate Cpp files.")
-            exit()
+            exit(1)
             
         self.model = model
         self.generated_model_subdir = generated_model_subdir
@@ -789,7 +789,7 @@ class CVS0DCppGenerator(object):
                                     break
                             if idx1==-1:
                                 print(f"annotate_cellml :: ERROR: idx of 1D FV vessel {out_vessel} connected to 0D module {vessel_tup.name} not found.")
-                                exit()
+                                exit(1)
                             fv1d_vessel_index = str(idx1)
                             fv1d_vessel_index_list.append([out_vessel, fv1d_vessel_index])
                             print("FV1D vessel idx found", out_vessel, fv1d_vessel_index)
@@ -800,7 +800,7 @@ class CVS0DCppGenerator(object):
                                 print(f"annotate_cellml :: ERROR: FV1D vessel idx is not written correctly",
                                     "should be of format FV1D_#, or FV1D_##, etc",
                                     out_vessel, fv1d_vessel_index)
-                                exit()
+                                exit(1)
                             
                             # best to do a sanity check, for compatibility between Finbar's old code and Bea's new code
                             idx1 = -1
@@ -812,10 +812,10 @@ class CVS0DCppGenerator(object):
                                     break
                             if idx1==-1:
                                 print(f"annotate_cellml :: ERROR: idx of 1D FV vessel {out_vessel} connected to 0D module {vessel_tup.name} not found.")
-                                exit()
+                                exit(1)
                             if fv1d_vessel_index != str(idx1):
                                 print(f"annotate_cellml :: ERROR: different idx of 1D FV vessel {out_vessel} found: {fv1d_vessel_index} {str(idx1)}")
-                                exit()
+                                exit(1)
                             
                             fv1d_vessel_index_list.append([out_vessel, fv1d_vessel_index])
 
@@ -845,7 +845,7 @@ class CVS0DCppGenerator(object):
                                     break
                             if idx1==-1:
                                 print(f"annotate_cellml :: ERROR: idx of 1D FV vessel {inp_vessel} connected to 0D module {vessel_tup.name} not found.")
-                                exit()
+                                exit(1)
                             fv1d_vessel_index = str(idx1)
                             fv1d_vessel_index_list.append([inp_vessel, fv1d_vessel_index])
                             print("FV1D vessel idx found", inp_vessel, fv1d_vessel_index)
@@ -856,7 +856,7 @@ class CVS0DCppGenerator(object):
                                 print(f"annotate_cellml :: ERROR: FV1D vessel idx is not written correctly",
                                     "should be of format FV1D_#, or FV1D_##, etc",
                                     inp_vessel, fv1d_vessel_index)
-                                exit()
+                                exit(1)
 
                             # best to do a sanity check, for compatibility between Finbar's old code and Bea's new code
                             idx1 = -1
@@ -868,10 +868,10 @@ class CVS0DCppGenerator(object):
                                     break
                             if idx1==-1:
                                 print(f"annotate_cellml :: ERROR: idx of 1D FV vessel {inp_vessel} connected to 0D module {vessel_tup.name} not found.")
-                                exit()
+                                exit(1)
                             if fv1d_vessel_index != str(idx1):
                                 print(f"annotate_cellml :: ERROR: different idx of 1D FV vessel {inp_vessel} found: {fv1d_vessel_index} {str(idx1)}")
-                                exit()
+                                exit(1)
 
                             fv1d_vessel_index_list.append([inp_vessel, fv1d_vessel_index])
                         
@@ -903,7 +903,7 @@ class CVS0DCppGenerator(object):
                             break
                 if idx_sum==-1:
                     print(f"annotate_cellml :: ERROR: idx of 1D FV volume sum connection not found.")
-                    exit()
+                    exit(1)
                 self.volume_sum_indeces.append(str(idx_sum))
 
                 self.volume_sum_types.append("FV_1d_sum") 
@@ -1010,7 +1010,7 @@ class CVS0DCppGenerator(object):
     def generate_cellml(self, inp_data_dict):
         print("generating CellML files, before Cpp generation")
         cellml_generator = CVS0DCellMLGenerator(self.model, inp_data_dict)
-        cellml_generator.generate_files()
+        return cellml_generator.generate_files() # True if the CellML model opens in OpenCOR (or runs in Python)
 
     def set_annotated_model_file_path(self, annotated_model_file_path):
         # This is for if we want to use a cellml file that it already annotated, i.e, one we didn't annotate.
@@ -1093,16 +1093,16 @@ class CVS0DCppGenerator(object):
         for vtd, dv, d_amount in variables_to_delay_info:
             vtd_url = urlparse(vtd)
             if vtd_url.path != self.generated_wID_model_file_path:
-                print("generate_cpp :: ERROR: found an unexpected model file for variable to delay?!")
-                exit()
+                print(f"generate_cpp :: ERROR: found an unexpected model file for the variable to delay {vtd}")
+                exit(1)
             dv_url = urlparse(dv)
             if dv_url.path != self.generated_wID_model_file_path:
-                print("generate_cpp :: ERROR: found an unexpected model file for delay variable?!")
-                exit()
+                print(f"generate_cpp :: ERROR: found an unexpected model file for the delay variable {dv}")
+                exit(1)
             d_amount_url = urlparse(d_amount)
             if d_amount_url.path != self.generated_wID_model_file_path:
-                print("generate_cpp :: ERROR: found an unexpected model file for delay amount?!")
-                exit()
+                print(f"generate_cpp :: ERROR: found an unexpected model file for the delay amount {d_amount}")
+                exit(1)
             delayed_ids.append([vtd_url.fragment, dv_url.fragment, d_amount_url.fragment])
             
         # readout_ids = []
@@ -1127,22 +1127,22 @@ class CVS0DCppGenerator(object):
             
             port_input_var_url = urlparse(port_input_var)
             if port_input_var_url.path != self.generated_wID_model_file_path:
-                print("generate_cpp :: ERROR: found an unexpected model file for readout variable?!")
-                exit()
+                print(f"generate_cpp :: ERROR: found an unexpected model file for the port input variable {port_input_var}")
+                exit(1)
             port_output_var_url = urlparse(port_output_var)
             if port_output_var_url.path != self.generated_wID_model_file_path:
-                print("generate_cpp :: ERROR: found an unexpected model file for readout variable?!")
-                exit()
+                print(f"generate_cpp :: ERROR: found an unexpected model file for the port output variable {port_output_var}")
+                exit(1)
             if external_var is not None:
                 external_var_url = urlparse(external_var)
                 if external_var_url.path != self.cpp_generated_models_dir:
-                    print("generate_cpp :: ERROR: found an unexpected model file for readout variable?!")
-                    exit()
+                    print(f"generate_cpp :: ERROR: found an unexpected model folder for the external variable {external_var}")
+                    exit(1)
                 if control_var is not None:
                     control_var_url = urlparse(control_var)
                     if control_var_url.path != self.generated_wID_model_file_path:
-                        print("generate_cpp :: ERROR: found an unexpected model file for readout variable?!")
-                        exit()
+                        print(f"generate_cpp :: ERROR: found an unexpected model file for the control variable {control_var}")
+                        exit(1)
                     port_input_variable_ids.append([port_input_var_url.fragment, port_output_var_url.fragment, 
                                                     external_var_url.fragment, control_var_url.fragment])
                 else:
@@ -1156,16 +1156,16 @@ class CVS0DCppGenerator(object):
         for input_var in input_variable_info:
             input_var_url = urlparse(input_var)
             if input_var_url.path != self.generated_wID_model_file_path:
-                print("generate_cpp :: ERROR: found an unexpected model file for readout variable?!")
-                exit()
+                print(f"generate_cpp :: ERROR: found an unexpected model file for the input variable {input_var}")
+                exit(1)
             input_variable_ids.append(input_var_url.fragment)
 
         output_variable_ids = []
         for output_var in output_variable_info:
             output_var_url = urlparse(output_var)
             if output_var_url.path != self.generated_wID_model_file_path:
-                print("generate_cpp :: ERROR: found an unexpected model file for readout variable?!")
-                exit()
+                print(f"generate_cpp :: ERROR: found an unexpected model file for the output variable {output_var}")
+                exit(1)
             output_variable_ids.append(output_var_url.fragment)
 
         volume_sum_variable_ids = []
@@ -1173,8 +1173,8 @@ class CVS0DCppGenerator(object):
             volume_sum_var_url = urlparse(volume_sum_var)
             # if volume_sum_var_url.path != self.generated_wID_model_file_path:
             if volume_sum_var_url.path != self.cpp_generated_models_dir:
-                print("generate_cpp :: ERROR: found an unexpected model file for readout variable?!")
-                exit()
+                print(f"generate_cpp :: ERROR: found an unexpected model folder for the volume sum variable {volume_sum_var}")
+                exit(1)
             vv = volume_sum_var_url.fragment
             v = vv.split("#")
             var_type = v[0]
@@ -1211,15 +1211,15 @@ class CVS0DCppGenerator(object):
             vtd = annotator.variable(vtd_id)
             if vtd == None:
                 print('generate_cpp :: ERROR: Unable to find a variable to delay with the id {} in the given model...'.format(vtd_id))
-                exit()
+                exit(1)
             dv = annotator.variable(dv_id)
             if dv == None:
                 print('generate_cpp :: ERROR: Unable to find a delay variable with the id {} in the given model...'.format(dv_id))
-                exit()
+                exit(1)
             d_amount = annotator.variable(d_amount_id)
             if d_amount == None:
-                print('generate_cpp :: ERROR: Unable to find a delay variable with the id {} in the given model...'.format(dv_id))
-                exit()
+                print('generate_cpp :: ERROR: Unable to find a delay amount with the id {} in the given model...'.format(d_amount_id))
+                exit(1)
             annotated_variables.append([[vtd, dv, d_amount], self.delay_variable_uri])
             print("DELAY annotated variable:", annotated_variables[-1])
             
@@ -1240,17 +1240,17 @@ class CVS0DCppGenerator(object):
                 port_input_var_id, port_output_var_id, external_var_id, control_var_id = entry
                 control_var = annotator.variable(control_var_id)
                 if control_var == None:
-                    print('generate_cpp :: ERROR: Unable to find a readout variable with the id {} in the given model...'.format(control_var_id))
-                    exit()
+                    print('generate_cpp :: ERROR: Unable to find a control variable with the id {} in the given model...'.format(control_var_id))
+                    exit(1)
             # get the variable (will fail if id doesn't correspond to a variable in the model)
             port_input_var = annotator.variable(port_input_var_id)
             if port_input_var == None:
-                print('generate_cpp :: ERROR: Unable to find a readout variable with the id {} in the given model...'.format(port_input_var_id))
-                exit()
+                print('generate_cpp :: ERROR: Unable to find a port input variable with the id {} in the given model...'.format(port_input_var_id))
+                exit(1)
             port_output_var = annotator.variable(port_output_var_id)
             if port_output_var == None:
-                print('generate_cpp :: ERROR: Unable to find a readout variable with the id {} in the given model...'.format(port_output_var_id))
-                exit()
+                print('generate_cpp :: ERROR: Unable to find a port output variable with the id {} in the given model...'.format(port_output_var_id))
+                exit(1)
             # TODO some check to see that the external variable is actually a variable within the cpp model??
             if len(entry) == 2:
                 annotated_variables.append([[port_input_var, port_output_var], self.input_variable_uri])
@@ -1264,8 +1264,8 @@ class CVS0DCppGenerator(object):
             # get the variable (will fail if id doesn't correspond to a variable in the model)
             input_var = annotator.variable(input_var_id)
             if input_var == None:
-                print('generate_cpp :: ERROR: Unable to find a readout variable with the id {} in the given model...'.format(input_var_id))
-                exit()
+                print('generate_cpp :: ERROR: Unable to find an input variable with the id {} in the given model...'.format(input_var_id))
+                exit(1)
             annotated_variables.append([[input_var], self.input_variable_uri])
             print("INPUT annotated variable:", annotated_variables[-1])
 
@@ -1273,8 +1273,8 @@ class CVS0DCppGenerator(object):
             # get the variable (will fail if id doesn't correspond to a variable in the model)
             output_var = annotator.variable(output_var_id)
             if output_var == None:
-                print('generate_cpp :: ERROR: Unable to find a readout variable with the id {} in the given model...'.format(output_var_id))
-                exit()
+                print('generate_cpp :: ERROR: Unable to find an output variable with the id {} in the given model...'.format(output_var_id))
+                exit(1)
             annotated_variables.append([[output_var], self.output_variable_uri])
             print("OUTPUT annotated variable:", annotated_variables[-1])
 
@@ -1282,8 +1282,8 @@ class CVS0DCppGenerator(object):
             # get the variable (will fail if id doesn't correspond to a variable in the model)
             volume_sum_var = annotator.variable(volume_sum_var_id[0])
             if volume_sum_var == None:
-                print('generate_cpp :: ERROR: Unable to find a readout variable with the id {} in the given model...'.format(volume_sum_var_id))
-                exit()
+                print('generate_cpp :: ERROR: Unable to find a volume sum variable with the id {} in the given model...'.format(volume_sum_var_id[0]))
+                exit(1)
             annotated_variables.append([[volume_sum_var, volume_sum_var_id[1]], self.volume_sum_variable_uri])
             print("VOLUME SUM annotated variable:", annotated_variables[-1])
         
@@ -1470,8 +1470,13 @@ class CVS0DCppGenerator(object):
         print(f"analysed model has type {analysed_model.type()} . Is it ODE type? {analysed_model.type()==AnalyserModel.Type.ODE}")
         # print(f"analysed model has type {analysed_model.type()} . Is it DAE type? {analysed_model.type()==AnalyserModel.Type.DAE}")
         if analysed_model.type() != AnalyserModel.Type.ODE:
-            print("generate_cpp :: ERROR: model is not a valid ODE model, aborting...")
-            exit()
+            # e.g. a DAE or NLA model (with algebraic loops), or an invalid one: libCellML's issues say why
+            if not self.DEBUG:
+                libcellml_utils.print_issues(a)
+            print(f"generate_cpp :: ERROR: the model is not a valid ODE model (libCellML analysis: "
+                  f"{AnalyserModel.typeAsString(analysed_model.type())}), see the issues above. The Cpp solvers "
+                  f"support ODE models only. Aborting...")
+            exit(1)
         # if not analysed_model.isValid():
         #     print("generate_cpp :: ERROR: model is not valid, aborting...")
         #     exit()
@@ -1498,7 +1503,7 @@ class CVS0DCppGenerator(object):
                                     break
                         if idx1d0d<0:
                             print(f"generate_cpp :: ERROR: 1d-0d connection not found in self.conn_1d_0d_info for volume_sum variable coupled to FV_1d type.")
-                            exit()
+                            exit(1)
                     else:
                         epv = ext_variable['port_variable']
                         for j in range(len(self.conn_1d_0d_info)):
@@ -1508,7 +1513,7 @@ class CVS0DCppGenerator(object):
                                 break
                         if idx1d0d<0:
                             print(f"generate_cpp :: ERROR: 1d-0d vessel connection not found in self.conn_1d_0d_info for ext_variable_idx {idxev} coupled to FV_1d type.")
-                            exit()
+                            exit(1)
 
             # print("idx0d1d:", idx1d0d)
             
@@ -1668,6 +1673,22 @@ class CVS0DCppGenerator(object):
         # TODO I should create my own profile with most of the below code so I don't have to change it when changes are made to libcellml
         profile = GeneratorProfile(GeneratorProfile.Profile.C)
         profile.setInterfaceFileNameString(f'{self.output_cpp_file_name}.h')
+        # MathML xor: the C profile calls its helper function "xor", which is a reserved word in C++ (alternative token
+        # of the operator ^), so the generated code would not compile. Same function, with another name.
+        profile.setXorString('xorFunc')
+        profile.setXorFunctionString('double xorFunc(double x, double y)\n'
+                                     '{\n'
+                                     '    return (x != 0.0) ^ (y != 0.0);\n'
+                                     '}\n')
+        # MathML not: the C profile writes the operator ! without parentheses around its argument, e.g. not(t < 0.5)
+        # becomes "!voi < 0.5", which C++ reads as "(!voi) < 0.5" (true for any t > 0): a function call instead, with
+        # its argument in parentheses ("not" is also a reserved word in C++)
+        profile.setHasNotOperator(False)
+        profile.setNotString('notFunc')
+        profile.setNotFunctionString('double notFunc(double x)\n'
+                                     '{\n'
+                                     '    return x == 0.0;\n'
+                                     '}\n')
         gen.setProfile(profile)
         gen.setModel(analysed_model)
 
@@ -2010,6 +2031,21 @@ public:
 #include <petscmat.h>
 #include <petscsnes.h>
 #include <petscvec.h>
+#include <limits>
+
+// Check a PETSc call outside the PETSc callbacks: if it fails, PETSc prints its error message, then this stops the
+// program (in a coupled run, mpirun then stops the coupler and the 1d solver). PetscCallVoid() would only return from
+// the calling function, and the time loop would go on (e.g. repeating forever a time step that cannot be taken).
+#define PETSC_CHECK(call)                                                                                  \\
+    do {                                                                                                   \\
+        const PetscErrorCode ierrCheck = (call);                                                           \\
+        if (ierrCheck != PETSC_SUCCESS) {                                                                  \\
+            std::cerr << "0d solver :: ERROR: PETSc call " << #call << " failed with error code "          \\
+                      << static_cast<int>(ierrCheck) << " (" << __FILE__ << ":" << __LINE__ << "). Exiting." \\
+                      << std::endl;                                                                        \\
+            exit(1);                                                                                       \\
+        }                                                                                                  \\
+    } while (0)
         """
             # PETSc time integration scheme, set at generation (see get_petsc_solver()). In a coupled model, the
             # coupler checks at start-up that it is the scheme of its configuration file and of the 1d solver.
@@ -2276,7 +2312,7 @@ Model0d::Model0d() :
                             break
                     if iStart is None or iEnd is None:
                         print(f"generate_cpp :: ERROR: Start or end line index of initialiseVariables function not found: {iStart} {iEnd}.")
-                        exit()
+                        exit(1)
 
                     for iL2, line2 in enumerate(lines[iStart:iEnd], start=iStart):
                         if 'external' in line2:
@@ -2301,7 +2337,7 @@ Model0d::Model0d() :
                             break
                     if iStart is None or iEnd is None:
                         print(f"generate_cpp :: ERROR: Start or end line index of computeRates function not found: {iStart} {iEnd}.")
-                        exit()
+                        exit(1)
 
                     line = line + "\n"      # start from the original line
                     line += "{\n"           # add the opening brace
@@ -2331,7 +2367,7 @@ Model0d::Model0d() :
                             break
                     if iStart is None or iEnd is None:
                         print(f"generate_cpp :: ERROR: Start or end line index of computeVariables function not found: {iStart} {iEnd}.")
-                        exit()
+                        exit(1)
 
                     line = line + "\n"      # start from the original line
                     line += "{\n"           # add the opening brace
@@ -2505,74 +2541,53 @@ void Model0d::set_ode_solver(std::string ODEsolver)
 """
         elif self.solver == 'PETSC':
             solverInitFunction += f"""
-    // Set up PETSc TS ODE solver (fixed-step for now)
-    PetscErrorCode ierr;
+    // Set up PETSc TS ODE solver (fixed-step for now). Every PETSc call is checked: PETSC_CHECK stops the program
+    // if it fails.
 
     // Create solution vector
-    ierr = VecCreate(PETSC_COMM_WORLD, &y);
-    std::cout << "set_ode_solver :: VecCreate "<< ierr << std::endl;
-    ierr = VecSetSizes(y, PETSC_DECIDE, STATE_COUNT);
-    std::cout << "set_ode_solver :: VecSetSizes "<< ierr << std::endl;
-    ierr = VecSetFromOptions(y);
-    std::cout << "set_ode_solver :: VecSetFromOptions "<< ierr << std::endl;
+    PETSC_CHECK(VecCreate(PETSC_COMM_WORLD, &y));
+    PETSC_CHECK(VecSetSizes(y, PETSC_DECIDE, STATE_COUNT));
+    PETSC_CHECK(VecSetFromOptions(y));
 
     // Create TS
-    ierr = TSCreate(PETSC_COMM_WORLD, &ts); // create the timestepper (TS) object
-    std::cout << "set_ode_solver :: TSCreate "<< ierr << std::endl;
-    ierr = TSSetProblemType(ts, TS_NONLINEAR); // TSProblemType is one of TS_LINEAR or TS_NONLINEAR
-    std::cout << "set_ode_solver :: TSSetProblemType "<< ierr << std::endl;
-    ierr = TSSetRHSFunction(ts, NULL, TSRHSfunc, this); // set the RHS function
+    PETSC_CHECK(TSCreate(PETSC_COMM_WORLD, &ts)); // create the timestepper (TS) object
+    PETSC_CHECK(TSSetProblemType(ts, TS_NONLINEAR)); // TSProblemType is one of TS_LINEAR or TS_NONLINEAR
+    PETSC_CHECK(TSSetRHSFunction(ts, NULL, TSRHSfunc, this)); // set the RHS function
     // 'this' --> pointer to your Model0d object; PETSc stores it, so that every time it calls TSRHSfunc, it passes that same pointer as ctx.
-    std::cout << "set_ode_solver :: TSSetRHSFunction "<< ierr << std::endl;
-    ierr = TSSetSolution(ts, y);
-    std::cout << "set_ode_solver :: TSSetSolution "<< ierr << std::endl; 
+    PETSC_CHECK(TSSetSolution(ts, y));
 
 
 #ifdef SOLVER_CN
-    ierr = TSSetType(ts, TSCN); // set the solution method: Crank-Nicolson
-    std::cout << "set_ode_solver :: TSSetType "<< ierr << std::endl;
-    ierr = TSSetTimeStep(ts, {self.dtSolver}); // set the initial time step
-    std::cout << "set_ode_solver :: TSSetTimeStep "<< ierr << std::endl;
-    ierr = TSSetMaxSteps(ts, 10000000000000); // maximum number of time steps
-    std::cout << "set_ode_solver :: TSSetMaxSteps "<< ierr << std::endl;
-    // ierr = TSSetMaxTime(ts, 10.);
-    // std::cout << "set_ode_solver :: TSSetMaxTime "<< ierr << std::endl;
+    PETSC_CHECK(TSSetType(ts, TSCN)); // set the solution method: Crank-Nicolson
+    PETSC_CHECK(TSSetTimeStep(ts, {self.dtSolver})); // set the initial time step
+    PETSC_CHECK(TSSetMaxSteps(ts, std::numeric_limits<PetscInt>::max())); // maximum number of time steps: no limit
+    // PETSC_CHECK(TSSetMaxTime(ts, 10.));
     // No other options needed
 #endif
 
 #ifdef SOLVER_BDF1
-    ierr = TSSetType(ts, TSBDF); // set the solution method: backward differentiation formula (BDF)
-    std::cout << "set_ode_solver :: TSSetType "<< ierr << std::endl;
-    ierr = TSBDFSetOrder(ts, 1);
-    std::cout << "set_ode_solver :: TSBDFSetOrder "<< ierr << std::endl;
-    ierr = TSSetTimeStep(ts, {self.dtSolver}); // set the initial time step
-    std::cout << "set_ode_solver :: TSSetTimeStep "<< ierr << std::endl;
-    ierr = TSSetMaxSteps(ts, 10000000000000); // maximum number of time steps
-    std::cout << "set_ode_solver :: TSSetMaxSteps "<< ierr << std::endl;
-    // ierr = TSSetMaxTime(ts, 10.);
-    // std::cout << "set_ode_solver :: TSSetMaxTime "<< ierr << std::endl;
+    PETSC_CHECK(TSSetType(ts, TSBDF)); // set the solution method: backward differentiation formula (BDF)
+    PETSC_CHECK(TSBDFSetOrder(ts, 1));
+    PETSC_CHECK(TSSetTimeStep(ts, {self.dtSolver})); // set the initial time step
+    PETSC_CHECK(TSSetMaxSteps(ts, std::numeric_limits<PetscInt>::max())); // maximum number of time steps: no limit
+    // PETSC_CHECK(TSSetMaxTime(ts, 10.));
 
     // Fixed time steps (the default TSBDF adaptor would change them)
-    PetscOptionsSetValue(NULL, "-ts_adapt_type", "none");
+    PETSC_CHECK(PetscOptionsSetValue(NULL, "-ts_adapt_type", "none"));
     // REMOVED: Options for matrix-free BDF1
     // PetscOptionsSetValue(NULL, "-ts_bdf_single_jacobian", NULL);
     // PetscOptionsSetValue(NULL, "-snes_mf_operator", NULL);
 #endif
 
 #ifdef SOLVER_BDF2
-    ierr = TSSetType(ts, TSBDF); // set the solution method: backward differentiation formula (BDF)
-    std::cout << "set_ode_solver :: TSSetType "<< ierr << std::endl;
-    ierr = TSBDFSetOrder(ts, 2);
-    std::cout << "set_ode_solver :: TSBDFSetOrder "<< ierr << std::endl;
-    ierr = TSSetTimeStep(ts, {self.dtSolver}); // set the initial time step
-    std::cout << "set_ode_solver :: TSSetTimeStep "<< ierr << std::endl;
-    ierr = TSSetMaxSteps(ts, 10000000000000); // maximum number of time steps
-    std::cout << "set_ode_solver :: TSSetMaxSteps "<< ierr << std::endl;
-    // ierr = TSSetMaxTime(ts, 10.);
-    // std::cout << "set_ode_solver :: TSSetMaxTime "<< ierr << std::endl;
+    PETSC_CHECK(TSSetType(ts, TSBDF)); // set the solution method: backward differentiation formula (BDF)
+    PETSC_CHECK(TSBDFSetOrder(ts, 2));
+    PETSC_CHECK(TSSetTimeStep(ts, {self.dtSolver})); // set the initial time step
+    PETSC_CHECK(TSSetMaxSteps(ts, std::numeric_limits<PetscInt>::max())); // maximum number of time steps: no limit
+    // PETSC_CHECK(TSSetMaxTime(ts, 10.));
 
     // Fixed time steps (the default TSBDF adaptor would change them)
-    PetscOptionsSetValue(NULL, "-ts_adapt_type", "none");
+    PETSC_CHECK(PetscOptionsSetValue(NULL, "-ts_adapt_type", "none"));
     // REMOVED: Options for matrix-free BDF2
     // PetscOptionsSetValue(NULL, "-ts_bdf_single_jacobian", NULL);
     // PetscOptionsSetValue(NULL, "-snes_mf_operator", NULL);
@@ -2582,14 +2597,11 @@ void Model0d::set_ode_solver(std::string ODEsolver)
     // in order: scalar absolute tolerances, vector of absolute tolerances, scalar relative tolerances, vector of relative tolerances
     double reltol = {REL_TOL}; // TODO get this from user_inputs.yaml too
     double abstol = {ABS_TOL}; // TODO get this from user_inputs.yaml too
-    ierr = TSSetTolerances(ts, abstol, NULL, reltol, NULL); 
-    std::cout << "set_ode_solver :: TSSetTolerances "<< ierr << std::endl;
+    PETSC_CHECK(TSSetTolerances(ts, abstol, NULL, reltol, NULL));
 
     // Nonlinear solver
-    ierr = TSGetSNES(ts, &snes); // return the SNES (nonlinear solver) associated with the TS (timestepper) context (valid only for nonlinear problems)
-    std::cout << "set_ode_solver :: TSGetSNES "<< ierr << std::endl;
-    ierr = SNESSetType(snes, SNESNEWTONLS); // set the algorithm/method to be used to solve the nonlinear system with the given SNES
-    std::cout << "set_ode_solver :: SNESSetType "<< ierr << std::endl;
+    PETSC_CHECK(TSGetSNES(ts, &snes)); // return the SNES (nonlinear solver) associated with the TS (timestepper) context (valid only for nonlinear problems)
+    PETSC_CHECK(SNESSetType(snes, SNESNEWTONLS)); // set the algorithm/method to be used to solve the nonlinear system with the given SNES
     // No line search: full Newton steps, as in CVODE. SNESNEWTONLS is Newton's method with a line search object, and
     // its type SNESLINESEARCHBASIC (also called SNESLINESEARCHNONE) is "not a line search at all" (PETSc docs): it takes
     // the full step x_new = x - lambda*dx with lambda = 1 fixed, and only evaluates the residual at x_new for the
@@ -2597,39 +2609,31 @@ void Model0d::set_ode_solver(std::string ODEsolver)
     // near the solution, the residual of stiff models is dominated by round-off and cannot decrease, so the steps
     // were shrunk to ~1e-12 and the Newton iterations failed.
     SNESLineSearch linesearch;
-    ierr = SNESGetLineSearch(snes, &linesearch);
-    ierr = SNESLineSearchSetType(linesearch, SNESLINESEARCHBASIC);
-    std::cout << "set_ode_solver :: SNESLineSearchSetType "<< ierr << std::endl;
+    PETSC_CHECK(SNESGetLineSearch(snes, &linesearch));
+    PETSC_CHECK(SNESLineSearchSetType(linesearch, SNESLINESEARCHBASIC));
     // Set the function (SNESConvergedWRMS) that is to be used to test for convergence of the nonlinear iterative solution.
-    ierr = SNESSetConvergenceTest(snes, SNESConvergedWRMS, ts, NULL); // see SNESConvergedWRMS
-    std::cout << "set_ode_solver :: SNESSetConvergenceTest "<< ierr << std::endl;
+    PETSC_CHECK(SNESSetConvergenceTest(snes, SNESConvergedWRMS, ts, NULL)); // see SNESConvergedWRMS
 
     // Linear solver (dense)
-    ierr = SNESGetKSP(snes, &ksp); // return the KSP (linear solver) context for the SNES solver
-    std::cout << "set_ode_solver :: SNESGetKSP "<< ierr << std::endl;
+    PETSC_CHECK(SNESGetKSP(snes, &ksp)); // return the KSP (linear solver) context for the SNES solver
     // The Jacobian is built by PETSc with finite differences, one column at a time (no Jacobian function is given),
     // and the linear systems are solved exactly with a dense LU factorisation, as in CVODE. 
     // These systems are small but badly scaled (stiff modes): iterative solvers (GMRES with ILU or Jacobi) would give inexact Newton steps that fail.
-    // ierr = KSPSetType(ksp, KSPGMRES); // GMRES
-    // ierr = KSPSetType(ksp, KSPFGMRES); // flexible GMRES
-    ierr = KSPSetType(ksp, KSPPREONLY); // KSPPREONLY: method that applies ONLY the preconditioner exactly once.
-    std::cout << "set_ode_solver :: KSPSetType "<< ierr << std::endl;
+    // PETSC_CHECK(KSPSetType(ksp, KSPGMRES)); // GMRES
+    // PETSC_CHECK(KSPSetType(ksp, KSPFGMRES)); // flexible GMRES
+    PETSC_CHECK(KSPSetType(ksp, KSPPREONLY)); // KSPPREONLY: method that applies ONLY the preconditioner exactly once.
 
     // Preconditioner
-    ierr = KSPGetPC(ksp, &pc); // return a pointer to the preconditioner (PC) context with the KSP
-    std::cout << "set_ode_solver :: KSPGetPC "<< ierr << std::endl;
+    PETSC_CHECK(KSPGetPC(ksp, &pc)); // return a pointer to the preconditioner (PC) context with the KSP
 
     // Preconditioner: exact LU factorisation, for every method (KSPPREONLY applies it once, i.e. a direct solve)
-    // ierr = PCSetType(pc, PCNONE);
-    // ierr = PCSetType(pc, PCJACOBI); // PCJACOBI: Jacobi, i.e. diagonal scaling preconditioning.
-    // ierr = PCSetType(pc, PCILU);
-    ierr = PCSetType(pc, PCLU); // PCLU: this uses a direct solver, based on LU factorization, as a preconditioner.
-    std::cout << "set_ode_solver :: PCSetType "<< ierr << std::endl;
+    // PETSC_CHECK(PCSetType(pc, PCNONE));
+    // PETSC_CHECK(PCSetType(pc, PCJACOBI)); // PCJACOBI: Jacobi, i.e. diagonal scaling preconditioning.
+    // PETSC_CHECK(PCSetType(pc, PCILU));
+    PETSC_CHECK(PCSetType(pc, PCLU)); // PCLU: this uses a direct solver, based on LU factorization, as a preconditioner.
 
-    ierr = TSSetFromOptions(ts); // set various TS parameters from the options database
-    std::cout << "set_ode_solver :: TSSetFromOptions "<< ierr << std::endl;
-    ierr = TSSetUp(ts); // set up the internal data structures for the later use of TS
-    std::cout << "set_ode_solver :: TSSetUp "<< ierr << std::endl;
+    PETSC_CHECK(TSSetFromOptions(ts)); // set various TS parameters from the options database
+    PETSC_CHECK(TSSetUp(ts)); // set up the internal data structures for the later use of TS
 
     // User data
     userData = new UserOdeData(variables, std::bind(&Model0d::computeRates, this,
@@ -3204,12 +3208,12 @@ void Model0d::initialiseVariablesAndComputeConstants() {
         elif self.solver == 'PETSC':
             externalInteractionFunctions += """
     PetscScalar *y_arr;
-    VecGetArray(y, &y_arr);
+    PETSC_CHECK(VecGetArray(y, &y_arr));
     std::copy(states, states + STATE_COUNT, y_arr);
-    VecRestoreArray(y, &y_arr);
+    PETSC_CHECK(VecRestoreArray(y, &y_arr));
 
-    PetscCallVoid(TSSetSolution(ts, y)); // set the initial conditions
-    PetscCallVoid(TSSetTime(ts, voi)); // set the initial time
+    PETSC_CHECK(TSSetSolution(ts, y)); // set the initial conditions
+    PETSC_CHECK(TSSetTime(ts, voi)); // set the initial time
         """
 
         externalInteractionFunctions += """
@@ -3346,15 +3350,16 @@ void Model0d::solveOneStep(double dtLoc)
     // voiEnd = std::round(voiEnd / tolTime) * tolTime;
     time_dof_0d = 0;
 
-    PetscCallVoid(TSSetTime(ts, voi)); // start from voi (rounded, or the agreed time in a coupled run)
-    PetscCallVoid(TSSetTimeStep(ts, dt)); // set time step
-    PetscCallVoid(TSSetMaxTime(ts, voiEnd)); // set final time for the current one-step solve
+    // PETSC_CHECK: a failed call stops the program (see its definition)
+    PETSC_CHECK(TSSetTime(ts, voi)); // start from voi (rounded, or the agreed time in a coupled run)
+    PETSC_CHECK(TSSetTimeStep(ts, dt)); // set time step
+    PETSC_CHECK(TSSetMaxTime(ts, voiEnd)); // set final time for the current one-step solve
     // Take one time step of size dt: TSSolve stops when it reaches the final time set above.
     // If the step fails, stop the program (as for CVODE). Returning instead would leave the time unchanged, and the
     // time loop would then repeat the same failing step forever.
     PetscErrorCode ierrSolve = TSSolve(ts, y);
     TSConvergedReason tsReason;
-    TSGetConvergedReason(ts, &tsReason);
+    PETSC_CHECK(TSGetConvergedReason(ts, &tsReason));
     if (ierrSolve != PETSC_SUCCESS || tsReason < 0) {
         std::cerr << "0d solver :: ERROR: PETSc TSSolve failed in the time step from " << voi << " to " << voiEnd
                   << " (" << TSConvergedReasons[tsReason] << "). Exiting." << std::endl;
@@ -3362,13 +3367,20 @@ void Model0d::solveOneStep(double dtLoc)
     }
 
     PetscReal t;
-    TSGetTime(ts, &t);
+    PETSC_CHECK(TSGetTime(ts, &t));
+    // TSSolve can also stop before the final time without failing, e.g. when the TS object reaches its maximum number
+    // of steps: the time would then not advance, and the time loop would repeat this step forever
+    if (std::fabs(t - voiEnd) > tolTime) {
+        std::cerr << "0d solver :: ERROR: PETSc TSSolve stopped at t = " << t << " before the end of the time step from "
+                  << voi << " to " << voiEnd << " (" << TSConvergedReasons[tsReason] << "). Exiting." << std::endl;
+        exit(1);
+    }
     voi = roundTime(t); // rounded as in the other solvers, so that it cannot drift
 
     const PetscScalar *y_arr;
-    VecGetArrayRead(y, &y_arr);
+    PETSC_CHECK(VecGetArrayRead(y, &y_arr));
     std::copy(y_arr, y_arr + STATE_COUNT, states);
-    VecRestoreArrayRead(y, &y_arr);
+    PETSC_CHECK(VecRestoreArrayRead(y, &y_arr));
 
     time_dof_0d = -1;
 """
@@ -3809,6 +3821,7 @@ PetscErrorCode SNESConvergedWRMS(SNES snes, PetscInt it, PetscReal xnorm, PetscR
 // PETSc RHS callable function
 PetscErrorCode TSRHSfunc(TS ts, PetscReal t, Vec Y, Vec Ydot, void *ctx)
 {
+    PetscFunctionBeginUser;
     // Function that computes the RHS of the ODE system dy/dt.
     // void *ctx : generic pointer that PETSc passes straight through this RHS function, to let you attach any data you want to the solver.
 
@@ -3831,9 +3844,9 @@ PetscErrorCode TSRHSfunc(TS ts, PetscReal t, Vec Y, Vec Ydot, void *ctx)
     //             << " || old time = " << model->userData->tOld
     //             << std::endl;
     
-    // Get raw C-style arrays from the PETSc vectors.
-    VecGetArrayRead(Y, &y_ptr); // read-only access to Y  (the state vector)
-    VecGetArray(Ydot, &ydot_ptr); // read/write access to Ydot (the RHS vector)
+    // Get raw C-style arrays from the PETSc vectors (PetscCall: an error is returned to TSSolve, which then fails).
+    PetscCall(VecGetArrayRead(Y, &y_ptr)); // read-only access to Y  (the state vector)
+    PetscCall(VecGetArray(Ydot, &ydot_ptr)); // read/write access to Ydot (the RHS vector)
 
     // Call the computeRates routine for computing the RHS, which expects plain double* pointers.
     model->computeRates(t, dtLoc, 
@@ -3842,10 +3855,10 @@ PetscErrorCode TSRHSfunc(TS ts, PetscReal t, Vec Y, Vec Ydot, void *ctx)
                         model->variables);
 
     // Restore the PETSc vectors / Release the raw arrays.
-    VecRestoreArrayRead(Y, &y_ptr);
-    VecRestoreArray(Ydot, &ydot_ptr);
+    PetscCall(VecRestoreArrayRead(Y, &y_ptr));
+    PetscCall(VecRestoreArray(Ydot, &ydot_ptr));
     
-    return 0;
+    PetscFunctionReturn(PETSC_SUCCESS);
 }
 
         """
@@ -3912,6 +3925,10 @@ int main(int argc, char* argv[]){
             mainScript += """
     PetscErrorCode ierr;
     ierr = PetscInitialize(&argc, &argv, NULL, NULL);
+    if (ierr != PETSC_SUCCESS) {
+        std::cerr << "0d solver :: ERROR: PetscInitialize failed with error code " << ierr << ". Exiting." << std::endl;
+        return 1;
+    }
     std::cout << "PETSc :: initialization complete " << ierr << std::endl;
 
     std::cout << "Starting 0D model simulation..." << std::endl;

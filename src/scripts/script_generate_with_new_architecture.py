@@ -95,7 +95,7 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
                     model_1d_config_path = inp_data_dict['cpp_1d_model_config_path']
                 else:
                     print("No model_1d_config_path or cpp_1d_model_config_path found in inp_data_dict")
-                    exit()
+                    sys.exit(1)
             if 'cpp_generated_models_dir' in inp_data_dict:
                 cpp_generated_models_dir = inp_data_dict['cpp_generated_models_dir']
             else:
@@ -162,7 +162,11 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
                 print("Check point 2B")
 
 
-        code_generator.generate_cellml(inp_data_dict)
+        if not code_generator.generate_cellml(inp_data_dict):
+            # the Cpp code is generated from this CellML model: generate_cpp() analyses it again with libCellML,
+            # and stops if it is not a valid ODE model
+            print("generate_cpp :: WARNING: the check of the CellML model failed (see the messages above). "
+                  "The Cpp generation continues: check the generated model.")
         if DEBUG:
             print("Check point 3")
         code_generator.annotate_cellml()
@@ -192,18 +196,26 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
 
 
 if __name__ == '__main__':
+    # Exit code: 0 if the model is generated, 1 otherwise, so that the calling scripts can check it.
+    # The errors found by the generation stop it with sys.exit(1) (after printing their message); SystemExit is not an
+    # Exception, so it is not caught below and keeps its exit code.
+    if len(sys.argv) < 2:
+        print("Usage: script_generate_with_new_architecture.py <do_generation_with_fit_parameters>")
+        print("e.g. script_generate_with_new_architecture.py True")
+        sys.exit(1)
+    do_generation_with_fit_parameters = sys.argv[1] in ['true', 'True']
     try:
-        do_generation_with_fit_parameters = sys.argv[1] in ['true', 'True']
         # if len(sys.argv) > 2 and sys.argv[2] not in ["None", "none"]:
         #     inp_data_dict = sys.argv[2]
         #     print(inp_data_dict)
         #     generate_with_new_architecture(do_generation_with_fit_parameters, inp_data_dict=inp_data_dict)
         # else:
         #     generate_with_new_architecture(do_generation_with_fit_parameters)
-        generate_with_new_architecture(do_generation_with_fit_parameters)
-
-    except:
+        success = generate_with_new_architecture(do_generation_with_fit_parameters)
+    except Exception:
         print(traceback.format_exc())
-        print("Usage with id params: do_generation_with_fit_parameters")
-        print("e.g. script_generate_with_new_architecture.py True")
-        exit()
+        print("generate :: ERROR: model generation failed with the error above")
+        sys.exit(1)
+    if not success:
+        print("generate :: ERROR: model generation failed, see the messages above")
+        sys.exit(1)
