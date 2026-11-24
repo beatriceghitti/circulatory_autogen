@@ -8,6 +8,8 @@ __pycache__/
 src/coupler/coupler
 src/coupler/coupler.o
 src/coupler/coupler_auxFun.o
+src/coupler/coupler.d
+src/coupler/coupler_auxFun.d
 
 # outputs and temporary files
 sensitivity_outputs
