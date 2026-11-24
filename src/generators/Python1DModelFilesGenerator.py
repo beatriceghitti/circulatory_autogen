@@ -193,6 +193,110 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
 
 
     nodes = {}
+
+    # Nodes with a 1d-0d connection (code 999): one node per connection, with all the 1D vessel ends at that node.
+    # They are built from whichever of these vessels comes first in the vessel array, so they do not depend on the order
+    # of the vessels (e.g. a 1D vessel splitting into a 1D vessel and a 0D module, or a 1D vessel and a 0D module
+    # merging into a 1D vessel, where the connection belongs to only one of the two 1D vessels).
+    idx_by_name = {vess[k]['name'] : k for k in range(nV)} # 1D vessels only (0D modules and BCs are not in it)
+    conn_ends = [] # 1D vessel ends with a 1d-0d connection: (vessel index, 0 inlet / 1 outlet)
+    for j in range(len(conn_1d_0d_info)):
+        conn_ends.append((conn_1d_0d_info[str(j+1)]['vess1d_idx'], conn_1d_0d_info[str(j+1)]['vess1d_bc_in0_or_out1']))
+
+    def node_ends(iV, side): # OK
+        """
+        Finds every 1D vessel end at the same node as a given end
+        All the 1D vessel ends at the node of the end (iV, side) of vessel iV (side 0: inlet, 1: outlet), (iV, side) first.
+        Two ends are at the same node when their vessels list each other, e.g. the outlet of A and the inlet of B
+        when A has B in out_vessels and B has A in inp_vessels.
+        The search follows these pairs, so that it finds the same ends whichever one it starts from.
+        """
+        ends = [(iV, side)]
+        k = 0
+        while k < len(ends):
+            iA, sideA = ends[k]
+            nameA = vess[iA]['name']
+            listA = df_vess.at[iA,'inp_vessels'] if sideA == 0 else df_vess.at[iA,'out_vessels']
+            for nameB in listA:
+                if nameB not in idx_by_name:
+                    continue # 0D module or BC
+                iB = idx_by_name[nameB]
+                # the end of B that lists A: usually its outlet for an inlet of A, and its inlet for an outlet of A
+                if sideA == 0:
+                    sidesB = ((1, df_vess.at[iB,'out_vessels']), (0, df_vess.at[iB,'inp_vessels']))
+                else:
+                    sidesB = ((0, df_vess.at[iB,'inp_vessels']), (1, df_vess.at[iB,'out_vessels']))
+                for sideB, listB in sidesB:
+                    if nameA in listB:
+                        if (iB, sideB) not in ends:
+                            ends.append((iB, sideB))
+                        break
+            k += 1
+        return ends
+
+    def add_hybrid_node(iN, iV, side): # OK
+        """
+        Creates node iN as a node with a 1d-0d connection (code 999) if the end (iV, side) of vessel iV, or another 1D
+        vessel end at its node, has a 1d-0d connection, and puts all the 1D vessel ends at that node on it.
+        Returns False, without creating anything, if none of them has a 1d-0d connection.
+        """
+        ends = node_ends(iV, side)
+        ends_conn = [e for e in ends if e in conn_ends]
+        if len(ends_conn) == 0:
+            # NO 1D vessel end at this node has a 1d-0d connection.
+            return False
+        if len(ends_conn) > 1:
+            sys.exit(f"generate1DPythonModelFiles :: ERROR: the 1D vessel ends "
+                     f"{', '.join(vess[e[0]]['name'] + (' inlet' if e[1] == 0 else ' outlet') for e in ends_conn)} "
+                     f"are at the same node and each has a 1d-0d connection: only one 1d-0d connection per node is possible")
+        nodes[iN] = {'id' : iN, 'type' : 999, 'vess_list' : []} # code 999: hybrid junction / 1d-0d connection
+        for (iB, sideB) in ends:
+            vess[iB]['n1' if sideB == 0 else 'n2'] = iN
+            nodes[iN]['vess_list'].append(iB)
+            if iB != iV:
+                print(f"Another 1D vessel found in hybrid connection: {vess[iB]['name']}")
+        return True
+
+    # boundary conditions in the 1D vessel array, and the end of a vessel where each one goes (0: inlet, in inp_vessels;
+    # 1: outlet, in out_vessels)
+    BC_sides = {'input_flow_BC' : 0, 'input_pressure_BC' : 0, 'output_flow_BC' : 1, 'output_pressure_BC' : 1}
+
+    def end_str(iA, sideA):
+        return f"the {'inlet' if sideA == 0 else 'outlet'} of 1D vessel {vess[iA]['name']}"
+
+    def check_1d_junction(iV, side):
+        # The node of the end (iV, side) has no 1d-0d connection and is not a boundary condition, so it must be a 1D
+        # junction: every 1D vessel end at that node must list only 1D vessels (in inp_vessels for an inlet, in
+        # out_vessels for an outlet). Stops with an error otherwise, instead of writing a wrong network.
+        for (iA, sideA) in node_ends(iV, side):
+            col = 'inp_vessels' if sideA == 0 else 'out_vessels'
+            listA = df_vess.at[iA,col]
+            if len(listA) == 0:
+                sys.exit(f"generate1DPythonModelFiles :: ERROR: {end_str(iA, sideA)} has no vessel or boundary condition in {col}")
+            for nameB in listA:
+                if nameB in BC_sides:
+                    if BC_sides[nameB] != sideA:
+                        sys.exit(f"generate1DPythonModelFiles :: ERROR: {end_str(iA, sideA)} has the boundary condition {nameB} in {col}: "
+                                 f"input_*_BC boundary conditions go in inp_vessels, output_*_BC ones in out_vessels")
+                    else:
+                        sys.exit(f"generate1DPythonModelFiles :: ERROR: {end_str(iA, sideA)} has the boundary condition {nameB} "
+                                 f"together with other vessels in {col} ({' '.join(listA)}): a boundary condition must be alone")
+                elif nameB not in idx_by_name:
+                    sys.exit(f"generate1DPythonModelFiles :: ERROR: {end_str(iA, sideA)} has {nameB} in {col}, which is not a 1D vessel "
+                             f"or a boundary condition, but this end has no 1d-0d connection (check that the 1D vessel array and the "
+                             f"1d-0d connections come from the same model)")
+
+    # every 1D vessel listed by another 1D vessel (in inp_vessels or out_vessels) must list it back: two 1D vessels share
+    # a node only when they list each other (see node_ends())
+    for k in range(nV):
+        for col in ('inp_vessels', 'out_vessels'):
+            for nameB in df_vess.at[k,col]:
+                if nameB in idx_by_name:
+                    iB = idx_by_name[nameB]
+                    if vess[k]['name'] not in df_vess.at[iB,'inp_vessels'] and vess[k]['name'] not in df_vess.at[iB,'out_vessels']:
+                        sys.exit(f"generate1DPythonModelFiles :: ERROR: 1D vessel {vess[k]['name']} has {nameB} in {col}, but 1D vessel "
+                                 f"{nameB} does not have {vess[k]['name']} in its inp_vessels or out_vessels")
+
     iN = 0
     for i in range(nV):
         iV = vess[i]['id']
@@ -205,29 +309,13 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
         if n1==-1:
             vess[i]['n1'] = iN
 
-            conn1d0d_found = False
-            for j in range(len(conn_1d_0d_info)):
-                if (conn_1d_0d_info[str(j+1)]['vess1d_idx']==iV and conn_1d_0d_info[str(j+1)]['vess1d_bc_in0_or_out1']==0):
-                    nodes[iN] = {'id' : iN, 'type' : 999, 'vess_list' : [iV]} # code 999: hybrid junction / 1d-0d connection
-                    conn1d0d_found = True
-                    break
-            
             inp_vess = df_vess.at[i,'inp_vessels']
             out_vess = df_vess.at[i,'out_vessels']
 
-            if conn1d0d_found:
-                for j in range(len(inp_vess)):
-                    nameV2 = inp_vess[j]
-
-                    for k in range(nV):
-                        if vess[k]['name']==nameV2:
-                            print(f"Another 1D vessel found in hybrid connection: {nameV2}")
-                            if nameV in df_vess.at[k,'out_vessels']:
-                                vess[k]['n2'] = iN
-                                iV2 = vess[k]['id']
-                                nodes[iN]['vess_list'].append(iV2)
+            # node with a 1d-0d connection (code 999) if this inlet, or another 1D vessel end at its node, has one
+            if add_hybrid_node(iN, iV, 0):
                 iN +=1
-                    
+
             else:
                 # code 0: inflow BC
                 # code 1: inlet pressure BC
@@ -244,109 +332,85 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
                 #     nodes[iN] = {'id' : iN, 'type' : 1, 'vess_list' : [iV]}
                 
                 else:
+                    # 1D junction: stops with an error if the vessel ends at this node do not form one (see check_1d_junction())
+                    check_1d_junction(iV, 0)
+
                     idVJ_list = [iV]
                     nameVJ_list = [nameV]
                     sideVJ_list = [-1]
-
-                    junc1d = True
                     for j in range(len(inp_vess)):
                         nameV2 = inp_vess[j]
-                        
-                        # iV2 = [kk for kk in range(nV) if vess[kk]['name']==nameV2][0]
-                        idxV2 = [kk for kk in range(nV) if vess[kk]['name']==nameV2]
-
-                        if len(idxV2)==0:
-                            junc1d = False
-                            print(f"WARNING: input vessel {nameV2} to 1D vessel {nameV} is 0D. Skipping this connection here as this is not a fully 1D junction.")
-                            continue
-                        iV2 = idxV2[0]
+                        iV2 = [kk for kk in range(nV) if vess[kk]['name']==nameV2][0] # a 1D vessel (see check_1d_junction())
                         nameVJ_list.append(nameV2)
                         idVJ_list.append(iV2)
 
-                    if junc1d:   
-                        for j in range(len(inp_vess)):
-                            search_vess = inp_vess[j]
-                            for k in range(nV):
-                                nameV2 = df_vess.at[k]['name'] # vess[k]['name']
-                                inp_vess2 = df_vess.at[k,'inp_vessels']
-                                out_vess2 = df_vess.at[k,'out_vessels']
-                                if nameV2 == search_vess: 
-                                    for h in range(len(nameVJ_list)):
-                                        if (nameVJ_list[h]!=nameV2 and nameVJ_list[h] in inp_vess2):
-                                            vess[k]['n1'] = iN
+                    for j in range(len(inp_vess)):
+                        search_vess = inp_vess[j]
+                        for k in range(nV):
+                            nameV2 = vess[k]['name']
+                            inp_vess2 = df_vess.at[k,'inp_vessels']
+                            out_vess2 = df_vess.at[k,'out_vessels']
+                            if nameV2 == search_vess: 
+                                for h in range(len(nameVJ_list)):
+                                    if (nameVJ_list[h]!=nameV2 and nameVJ_list[h] in inp_vess2):
+                                        vess[k]['n1'] = iN
 
-                                            for p in range(len(inp_vess2)):
-                                                nameV3 = inp_vess2[p]
-                                                iV3 = [kk for kk in range(nV) if vess[kk]['name']==nameV3][0]
-                                                if nameV3 not in nameVJ_list:
-                                                    inp_vess3 = df_vess.at[iV3,'inp_vessels']
-                                                    out_vess3 = df_vess.at[iV3,'out_vessels']
-                                                    if any(x in nameVJ_list for x in inp_vess3):
-                                                        vess[iV3]['n1'] = iN
-                                                    elif any(x in nameVJ_list for x in out_vess3):
-                                                        vess[iV3]['n2'] = iN
-                                                    nameVJ_list.append(nameV3)
-                                                    idVJ_list.append(iV3)  
-                                            
-                                            sideVJ_list.append(-1)
-                                            break
+                                        for p in range(len(inp_vess2)):
+                                            nameV3 = inp_vess2[p]
+                                            iV3 = [kk for kk in range(nV) if vess[kk]['name']==nameV3][0]
+                                            if nameV3 not in nameVJ_list:
+                                                inp_vess3 = df_vess.at[iV3,'inp_vessels']
+                                                out_vess3 = df_vess.at[iV3,'out_vessels']
+                                                if any(x in nameVJ_list for x in inp_vess3):
+                                                    vess[iV3]['n1'] = iN
+                                                elif any(x in nameVJ_list for x in out_vess3):
+                                                    vess[iV3]['n2'] = iN
+                                                nameVJ_list.append(nameV3)
+                                                idVJ_list.append(iV3)  
                                         
-                                        elif (nameVJ_list[h]!=nameV2 and nameVJ_list[h] in out_vess2):
-                                            vess[k]['n2'] = iN
-                                            
-                                            for p in range(len(out_vess2)):
-                                                nameV3 = out_vess2[p]
-                                                iV3 = [kk for kk in range(nV) if vess[kk]['name']==nameV3][0]
-                                                if nameV3 not in nameVJ_list:
-                                                    inp_vess3 = df_vess.at[iV3,'inp_vessels']
-                                                    out_vess3 = df_vess.at[iV3,'out_vessels']
-                                                    if any(x in nameVJ_list for x in inp_vess3):
-                                                        vess[iV3]['n1'] = iN
-                                                    elif any(x in nameVJ_list for x in out_vess3):
-                                                        vess[iV3]['n2'] = iN
-                                                    nameVJ_list.append(nameV3)
-                                                    idVJ_list.append(iV3)
-                                            
-                                            sideVJ_list.append(1)
-                                            break
-                                    break
-                        
-                        nVJ = len(idVJ_list)
-                        idVJ_list.sort()
-                        nodes[iN] = {'id' : iN, 'type' : nVJ, 'vess_list' : idVJ_list} # code N>1: 1D junction with N vessels
-                        if nVJ==2:
-                            if sideVJ_list[0]==sideVJ_list[1]:
-                                print(idVJ_list,sideVJ_list)
-                        elif nVJ==3:
-                            if sideVJ_list[0]==sideVJ_list[1] and sideVJ_list[0]==sideVJ_list[2]:
-                                print(idVJ_list,sideVJ_list)
-                        # print("fully 1d junction node:",iN,nVJ,idVJ_list,sideVJ_list)
-                        iN +=1
+                                        sideVJ_list.append(-1)
+                                        break
+                                    
+                                    elif (nameVJ_list[h]!=nameV2 and nameVJ_list[h] in out_vess2):
+                                        vess[k]['n2'] = iN
+                                        
+                                        for p in range(len(out_vess2)):
+                                            nameV3 = out_vess2[p]
+                                            iV3 = [kk for kk in range(nV) if vess[kk]['name']==nameV3][0]
+                                            if nameV3 not in nameVJ_list:
+                                                inp_vess3 = df_vess.at[iV3,'inp_vessels']
+                                                out_vess3 = df_vess.at[iV3,'out_vessels']
+                                                if any(x in nameVJ_list for x in inp_vess3):
+                                                    vess[iV3]['n1'] = iN
+                                                elif any(x in nameVJ_list for x in out_vess3):
+                                                    vess[iV3]['n2'] = iN
+                                                nameVJ_list.append(nameV3)
+                                                idVJ_list.append(iV3)
+                                        
+                                        sideVJ_list.append(1)
+                                        break
+                                break
+                    
+                    nVJ = len(idVJ_list)
+                    idVJ_list.sort()
+                    nodes[iN] = {'id' : iN, 'type' : nVJ, 'vess_list' : idVJ_list} # code N>1: 1D junction with N vessels
+                    if nVJ==2:
+                        if sideVJ_list[0]==sideVJ_list[1]:
+                            print(idVJ_list,sideVJ_list)
+                    elif nVJ==3:
+                        if sideVJ_list[0]==sideVJ_list[1] and sideVJ_list[0]==sideVJ_list[2]:
+                            print(idVJ_list,sideVJ_list)
+                    # print("fully 1d junction node:",iN,nVJ,idVJ_list,sideVJ_list)
+                    iN +=1
             
         if n2==-1:
             vess[i]['n2'] = iN
 
-            conn1d0d_found = False
-            for j in range(len(conn_1d_0d_info)):
-                if (conn_1d_0d_info[str(j+1)]['vess1d_idx']==iV and conn_1d_0d_info[str(j+1)]['vess1d_bc_in0_or_out1']==1):
-                    nodes[iN] = {'id' : iN, 'type' : 999, 'vess_list' : [iV]} # code 999: hybrid junction / 1d-0d connection
-                    conn1d0d_found = True
-                    break
-
             inp_vess = df_vess.at[i,'inp_vessels']
             out_vess = df_vess.at[i,'out_vessels']
 
-            if conn1d0d_found:
-                for j in range(len(out_vess)):
-                    nameV2 = out_vess[j]
-
-                    for k in range(nV):
-                        if vess[k]['name']==nameV2:
-                            print(f"Another 1D vessel found in hybrid connection: {nameV2}")
-                            if nameV in df_vess.at[k,'inp_vessels']:
-                                vess[k]['n1'] = iN
-                                iV2 = vess[k]['id']
-                                nodes[iN]['vess_list'].append(iV2)
+            # node with a 1d-0d connection (code 999) if this outlet, or another 1D vessel end at its node, has one
+            if add_hybrid_node(iN, iV, 1):
                 iN +=1
 
             else:
@@ -365,84 +429,76 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
                 #     nodes[iN] = {'id' : iN, 'type' : 1, 'vess_list' : [iV]}
 
                 else:
+                    # 1D junction: stops with an error if the vessel ends at this node do not form one (see check_1d_junction())
+                    check_1d_junction(iV, 1)
+
                     idVJ_list = [iV]
                     nameVJ_list = [nameV]
                     sideVJ_list = [1]
-
-                    junc1d = True
                     for j in range(len(out_vess)):
                         nameV2 = out_vess[j]
-                        
-                        # iV2 = [kk for kk in range(nV) if vess[kk]['name']==nameV2][0]
-                        idxV2 = [kk for kk in range(nV) if vess[kk]['name']==nameV2]
-
-                        if len(idxV2)==0:
-                            junc1d = False
-                            print(f"WARNING: output vessel {nameV2} to 1D vessel {nameV} is 0D. Skipping this connection here as this is not a fully 1D junction.")
-                            continue
-                        iV2 = idxV2[0]
+                        iV2 = [kk for kk in range(nV) if vess[kk]['name']==nameV2][0] # a 1D vessel (see check_1d_junction())
                         nameVJ_list.append(nameV2)
                         idVJ_list.append(iV2)
 
-                    if junc1d:  
-                        for j in range(len(out_vess)):
-                            search_vess = out_vess[j]
-                            for k in range(nV):
-                                nameV2 = vess[k]['name']
-                                inp_vess2 = df_vess.at[k,'inp_vessels']
-                                out_vess2 = df_vess.at[k,'out_vessels']
-                                if nameV2 == search_vess: 
-                                    for h in range(len(nameVJ_list)):
-                                        if (nameVJ_list[h]!=nameV2 and nameVJ_list[h] in inp_vess2):
-                                            vess[k]['n1'] = iN
-                                            
-                                            for p in range(len(inp_vess2)):
-                                                nameV3 = inp_vess2[p]
-                                                iV3 = [kk for kk in range(nV) if vess[kk]['name']==nameV3][0]
-                                                if nameV3 not in nameVJ_list:
-                                                    inp_vess3 = df_vess.at[iV3,'inp_vessels']
-                                                    out_vess3 = df_vess.at[iV3,'out_vessels']
-                                                    if any(x in nameVJ_list for x in inp_vess3):
-                                                        vess[iV3]['n1'] = iN
-                                                    elif any(x in nameVJ_list for x in out_vess3):
-                                                        vess[iV3]['n2'] = iN
-                                                    nameVJ_list.append(nameV3)
-                                                    idVJ_list.append(iV3)
-                                            
-                                            sideVJ_list.append(-1)
-                                            break
+                    for j in range(len(out_vess)):
+                        search_vess = out_vess[j]
+                        for k in range(nV):
+                            nameV2 = vess[k]['name']
+                            inp_vess2 = df_vess.at[k,'inp_vessels']
+                            out_vess2 = df_vess.at[k,'out_vessels']
+                            if nameV2 == search_vess: 
+                                for h in range(len(nameVJ_list)):
+                                    if (nameVJ_list[h]!=nameV2 and nameVJ_list[h] in inp_vess2):
+                                        vess[k]['n1'] = iN
                                         
-                                        elif (nameVJ_list[h]!=nameV2 and nameVJ_list[h] in out_vess2):
-                                            vess[k]['n2'] = iN
+                                        for p in range(len(inp_vess2)):
+                                            nameV3 = inp_vess2[p]
+                                            iV3 = [kk for kk in range(nV) if vess[kk]['name']==nameV3][0]
+                                            if nameV3 not in nameVJ_list:
+                                                inp_vess3 = df_vess.at[iV3,'inp_vessels']
+                                                out_vess3 = df_vess.at[iV3,'out_vessels']
+                                                if any(x in nameVJ_list for x in inp_vess3):
+                                                    vess[iV3]['n1'] = iN
+                                                elif any(x in nameVJ_list for x in out_vess3):
+                                                    vess[iV3]['n2'] = iN
+                                                nameVJ_list.append(nameV3)
+                                                idVJ_list.append(iV3)
+                                        
+                                        sideVJ_list.append(-1)
+                                        break
+                                    
+                                    elif (nameVJ_list[h]!=nameV2 and nameVJ_list[h] in out_vess2):
+                                        vess[k]['n2'] = iN
 
-                                            for p in range(len(out_vess2)):
-                                                nameV3 = out_vess2[p]
-                                                iV3 = [kk for kk in range(nV) if vess[kk]['name']==nameV3][0]
-                                                if nameV3 not in nameVJ_list:
-                                                    inp_vess3 = df_vess.at[iV3,'inp_vessels']
-                                                    out_vess3 = df_vess.at[iV3,'out_vessels']
-                                                    if any(x in nameVJ_list for x in inp_vess3):
-                                                        vess[iV3]['n1'] = iN
-                                                    elif any(x in nameVJ_list for x in out_vess3):
-                                                        vess[iV3]['n2'] = iN
-                                                    nameVJ_list.append(nameV3)
-                                                    idVJ_list.append(iV3)
-                                            
-                                            sideVJ_list.append(1)
-                                            break
-                                    break
-                        
-                        nVJ = len(idVJ_list)
-                        idVJ_list.sort()
-                        nodes[iN] = {'id' : iN, 'type' : nVJ, 'vess_list' : idVJ_list} # code N>1: 1D junction with N vessels
-                        if nVJ==2:
-                            if sideVJ_list[0]==sideVJ_list[1]:
-                                print(idVJ_list,sideVJ_list)
-                        elif nVJ==3:
-                            if sideVJ_list[0]==sideVJ_list[1] and sideVJ_list[0]==sideVJ_list[2]:
-                                print(idVJ_list,sideVJ_list)
-                        # print("fully 1d junction node:",iN,nVJ,idVJ_list,sideVJ_list)
-                        iN +=1
+                                        for p in range(len(out_vess2)):
+                                            nameV3 = out_vess2[p]
+                                            iV3 = [kk for kk in range(nV) if vess[kk]['name']==nameV3][0]
+                                            if nameV3 not in nameVJ_list:
+                                                inp_vess3 = df_vess.at[iV3,'inp_vessels']
+                                                out_vess3 = df_vess.at[iV3,'out_vessels']
+                                                if any(x in nameVJ_list for x in inp_vess3):
+                                                    vess[iV3]['n1'] = iN
+                                                elif any(x in nameVJ_list for x in out_vess3):
+                                                    vess[iV3]['n2'] = iN
+                                                nameVJ_list.append(nameV3)
+                                                idVJ_list.append(iV3)
+                                        
+                                        sideVJ_list.append(1)
+                                        break
+                                break
+                    
+                    nVJ = len(idVJ_list)
+                    idVJ_list.sort()
+                    nodes[iN] = {'id' : iN, 'type' : nVJ, 'vess_list' : idVJ_list} # code N>1: 1D junction with N vessels
+                    if nVJ==2:
+                        if sideVJ_list[0]==sideVJ_list[1]:
+                            print(idVJ_list,sideVJ_list)
+                    elif nVJ==3:
+                        if sideVJ_list[0]==sideVJ_list[1] and sideVJ_list[0]==sideVJ_list[2]:
+                            print(idVJ_list,sideVJ_list)
+                    # print("fully 1d junction node:",iN,nVJ,idVJ_list,sideVJ_list)
+                    iN +=1
 
             
     nN = len(nodes)
