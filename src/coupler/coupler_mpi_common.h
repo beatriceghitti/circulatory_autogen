@@ -21,6 +21,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <map>
 
 // Each program identifies itself with a fixed "color". Using fixed colors (rather than
 // MPI_APPNUM) means that the order of the programs on the mpirun line does not matter.
@@ -40,7 +41,9 @@ enum CouplingTag {
     TAG_CONFIG  = 1,   // coupler -> 0d/1d : handshake, COUPLING_CONFIG_LENGTH doubles
                        //                    {N1d0d, couple_volume_sum, T0, pre_time, sim_time, COUPLING_TOL_TIME,
                        //                     coupling_save_time(pre_time), coupling_end_time(pre_time, sim_time),
-                       //                     PETSc scheme code (see CouplingPetscScheme)}
+                       //                     PETSc scheme code (see CouplingPetscScheme), N1d0dTot}
+    TAG_CONN    = 3,   // coupler -> 0d/1d : right after TAG_CONFIG, the 1d-0d connections of the coupler's connections file,
+                       //                    N1d0dTot x COUPLING_CONN_NFIELDS values, row-major (see COUPLING_CONN_FIELDS)
     TAG_DONE    = 2,   // 0d/1d -> coupler : the solver has completed its time loop {final time, 0}
                        //                    (the coupler aborts the job if the 0d solver stops before the end time)
     TAG_DT      = 10,  // 0d <-> coupler <-> 1d : {time, time step} within a global time step:
@@ -52,7 +55,8 @@ enum CouplingTag {
 };
 
 constexpr int COUPLING_DATA_LENGTH   = 2;  // doubles per time/time step message and per 1d-0d connection
-constexpr int COUPLING_CONFIG_LENGTH = 9;  // doubles in the TAG_CONFIG handshake message
+constexpr int COUPLING_CONFIG_LENGTH = 10; // doubles in the TAG_CONFIG handshake message
+constexpr int COUPLING_CONFIG_PETSC_SCHEME = 8; // position of the PETSc scheme code in the TAG_CONFIG message
 constexpr double COUPLING_END_OF_STEP = -999.0; // time step value of the TAG_DT message that ends a global time step
 
 // Time synchronisation, checked by the coupler (which aborts the job on any mismatch):
@@ -147,6 +151,32 @@ inline const char* coupling_petsc_scheme_name(int code)
         case PETSC_SCHEME_BDF2: return "BDF2";
         default:                return "unknown";
     }
+}
+
+// 1d-0d connections, checked at start-up. The coupler reads them from the connections file of the 0d model
+// (<networkName>_coupler1d0d.json in its inputFold, written at generation) and sends them to both solvers (TAG_CONN):
+// - the 0d solver compares all the fields with the connections compiled into it at generation (a difference means that
+//   main0d was not rebuilt after the model was regenerated, or that the file was edited);
+// - the 1d solver compares the fields it uses with its own copy of the file (in the input_files folder of the 1d run),
+//   which can come from another generation (e.g. with generate_1d: False in the user inputs).
+// Each connection ("1", "2", ... in the file) is sent as its values of these fields, -1 for a field it does not have.
+// The 1d solver has the same list (CONN_FIELDS in auxMPIFunctions.py): KEEP THEM IN SYNC (and add new fields to both).
+inline const char* const COUPLING_CONN_FIELDS[] = {
+    "vess1d_idx", "vess1d_bc_in0_or_out1", "vess0d_idx", "cellml_idx", "cellml_bc_in0_or_out1",
+    "cellml_bc_flow0_or_press1", "port_idx", "port_flow0_or_press1", "port_state0_or_var1", "R_T_variable_idx",
+    "pressure_bc_as_flow_bc", "port_volume_sum"
+};
+constexpr int COUPLING_CONN_NFIELDS = sizeof(COUPLING_CONN_FIELDS)/sizeof(COUPLING_CONN_FIELDS[0]);
+
+// Values of the fields of a connection, in the order of COUPLING_CONN_FIELDS (-1 for a field it does not have).
+inline std::vector<double> coupling_connection_row(const std::map<std::string, int>& conn)
+{
+    std::vector<double> row(COUPLING_CONN_NFIELDS, -1.0);
+    for (int f = 0; f < COUPLING_CONN_NFIELDS; ++f) {
+        auto it = conn.find(COUPLING_CONN_FIELDS[f]);
+        if (it != conn.end()) row[f] = static_cast<double>(it->second);
+    }
+    return row;
 }
 
 struct CouplingLayout {

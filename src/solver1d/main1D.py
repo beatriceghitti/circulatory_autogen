@@ -177,7 +177,8 @@ def run1DBFmod(AICstate=[], QICstate=[]):
     tSaveIni_coupler = None
     tEndGlob_coupler = None
     if is_coupled:
-        with open(inputFold+networkName+'_coupler1d0d.json', "r") as file:
+        conn1d0d_json_file = inputFold+networkName+'_coupler1d0d.json'
+        with open(conn1d0d_json_file, "r") as file:
             pipe_1d_0d_info = json.load(file)
 
         N1d0dTot = len(pipe_1d_0d_info)
@@ -198,7 +199,9 @@ def run1DBFmod(AICstate=[], QICstate=[]):
         # check that the coupler (and so the 0d solver) agrees on the coupling layout and on the PETSc scheme,
         # and get the time tolerance, the save time and the end time shared by the coupler and the 0d solver
         tolTime_coupler, tSaveIni_coupler, tEndGlob_coupler = cpl.handshake(
-            N1d0d, couple_volume_sum, T0, pre_time, sim_time, PETSc_solver if ODEsolver == 'PETSC' else None)
+            N1d0d, couple_volume_sum, T0, pre_time, sim_time, PETSc_solver if ODEsolver == 'PETSC' else None, N1d0dTot)
+        # check that this copy of the connections file matches the one of the 0d model (read by the coupler)
+        cpl.check_connections(pipe_1d_0d_info, conn1d0d_json_file)
 
 
     # [units conversion factors]

@@ -107,7 +107,7 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
                 generate_1d = False
             if not generate_1d:
                 print("WARNING: 1D model input files and solver will not be generated. Check they already exist and they run properly.")
-                print("     Otherwise, modify your choice in the user input yaml file.")
+                print("     Otherwise, modify your choice to 'generate_1d: True' in the user input yaml file.")
                
             # cardiac period (parameter T), read once here for the 0d generator (coupler configuration) and the
             # 1d generator (input.ini)

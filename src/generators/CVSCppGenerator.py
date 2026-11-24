@@ -1904,6 +1904,7 @@ public:
     // MPI coupling with the 1d solver, through the coupler (see coupler_mpi_common.h)
     int coupler_rank; // world rank of the coupler
     int initCoupling(int couplerRank, double T0, double pre_time, double sim_time);
+    std::vector<std::map<std::string, int>> compiledConnections() const; // 1d-0d connections at generation
     void finaliseCoupling();
 
     int DATA_LENGTH;
@@ -2632,6 +2633,17 @@ void Model0d::set_ode_solver(std::string ODEsolver)
             for iL, line in enumerate(lines_tmp[iStart:iEnd+1], start=iStart):
                 couplingFunctions += line #+ '\n'
             couplingFunctions += '\n'
+
+            # 1d-0d connections compiled into this model, as written in its connections file (<model>_coupler1d0d.json):
+            # initCoupling() checks them against the file read by the coupler (see COUPLING_CONN_FIELDS)
+            couplingFunctions += "std::vector<std::map<std::string, int>> Model0d::compiledConnections() const\n{\n"
+            couplingFunctions += "    // 1d-0d connections of this model at generation, as in its connections file (<model>_coupler1d0d.json)\n"
+            couplingFunctions += "    return {\n"
+            for iC in range(N1d0dTot):
+                fields = ", ".join(f'{{"{key}", {value}}}' for key, value in self.conn_1d_0d_info[str(iC+1)].items()
+                                   if isinstance(value, int) and not isinstance(value, bool))
+                couplingFunctions += f"        {{{fields}}}, // connection {iC+1}\n"
+            couplingFunctions += "    };\n}\n\n"
 
 
         # print("#################################################")

@@ -10,7 +10,7 @@
 // src/coupler/launch_coupled_mpi.bash builds this command from the coupler configuration file.
 //
 // Message protocol (see coupler_mpi_common.h):
-//   [start]     coupler -> 0d, 1d : TAG_CONFIG handshake
+//   [start]     coupler -> 0d, 1d : TAG_CONFIG handshake, then TAG_CONN (1d-0d connections, see COUPLING_CONN_FIELDS)
 //               (if volume sum) 1d -> coupler -> 0d : TAG_VOL, initial 1d volume
 //   [each global time step]
 //               0d -> coupler -> 1d : TAG_DT_STEP {time, dt proposed by 0d}
@@ -65,6 +65,8 @@ private:
 
     size_t N1d0dTot = 0;
     size_t N1d0d = 0;
+    std::string connectionsFile;    // connections file of the 0d model (<networkName>_coupler1d0d.json)
+    std::vector<double> connTable;  // its connections, N1d0dTot x COUPLING_CONN_NFIELDS values (see COUPLING_CONN_FIELDS)
     AuxCouplerFun auxFun;
     bool couple_volume_sum = false;
 
@@ -199,6 +201,7 @@ public:
         }
 
         std::string fileJson = inputFold+networkName+"_coupler1d0d.json";
+        connectionsFile = fileJson;
         std::string dataJson = auxFun.readJsonFromFile(fileJson);
         if (dataJson.empty()) {
             throw std::runtime_error("Coupler1d0d::init() : could not read 1d-0d connections file " + fileJson);
@@ -222,6 +225,18 @@ public:
                 N1d0d++;
             }
         }
+        // connections sent to both solvers at start-up, in the order of the file (see COUPLING_CONN_FIELDS)
+        connTable.clear();
+        for (size_t i = 0; i < N1d0dTot; ++i) {
+            auto conn = pipe_1d_0d_info.find(std::to_string(i+1));
+            if (conn == pipe_1d_0d_info.end()) {
+                throw std::runtime_error("Coupler1d0d::init() : connection \"" + std::to_string(i+1) + "\" is missing in "
+                                         + fileJson + " (the connections must be numbered 1, 2, ...): regenerate the model");
+            }
+            std::vector<double> row = coupling_connection_row(conn->second);
+            connTable.insert(connTable.end(), row.begin(), row.end());
+        }
+        std::cout << "Coupler1d0d :: 1d-0d connections file : " << fileJson << std::endl;
         std::cout << "Coupler1d0d :: ODE solver : " << ODEsolver << (petscSolver.empty() ? "" : " (" + petscSolver + ")")
                   << " || T0 : " << T0 << " || pre_time : " << pre_time
                   << " || sim_time : " << sim_time << std::endl;
@@ -236,14 +251,19 @@ public:
     void handshake() {
         // tolTime, tSave and tEnd: checked by the 0d solver, adopted by the 1d solver
         // (see COUPLING_TOL_TIME, coupling_save_time() and coupling_end_time() in coupler_mpi_common.h);
-        // petscScheme: checked by both solvers (see CouplingPetscScheme)
+        // petscScheme: checked by both solvers (see CouplingPetscScheme); N1d0dTot: number of connections (one-to-one
+        // and global) in the TAG_CONN message that follows
         std::vector<double> cfg = {static_cast<double>(N1d0d), couple_volume_sum ? 1.0 : 0.0, T0, pre_time, sim_time,
-                                   tolTime, tSave, tEnd, static_cast<double>(petscScheme)};
+                                   tolTime, tSave, tEnd, static_cast<double>(petscScheme), static_cast<double>(N1d0dTot)};
         if (cfg.size() != COUPLING_CONFIG_LENGTH) {
             throw std::runtime_error("Coupler1d0d::handshake() : the handshake message does not have COUPLING_CONFIG_LENGTH values");
         }
         send(cfg, rank0d, TAG_CONFIG);
         send(cfg, rank1d, TAG_CONFIG);
+        // then the connections of the connections file: the 0d solver checks them against the ones compiled into it,
+        // the 1d solver against its own copy of the file (see COUPLING_CONN_FIELDS)
+        send(connTable, rank0d, TAG_CONN);
+        send(connTable, rank1d, TAG_CONN);
     }
 
     // Relay loop: the coupler orchestrates the communication between the 0d and 1d solvers.

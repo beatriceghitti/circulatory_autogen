@@ -346,11 +346,12 @@ int Model0d::initCoupling(int couplerRank, double T0, double pre_time, double si
 #else
     const int petscScheme = PETSC_SCHEME_NONE; // not built with the PETSc ODE solver
 #endif
-    const double mine[COUPLING_CONFIG_LENGTH] = {static_cast<double>(N1d0d), static_cast<double>(couple_volume_sum), T0, pre_time, sim_time,
+    
+const double mine[COUPLING_CONFIG_LENGTH] = {static_cast<double>(N1d0d), static_cast<double>(couple_volume_sum), T0, pre_time, sim_time,
                                                  tolTime, coupling_save_time(pre_time), coupling_end_time(pre_time, sim_time),
-                                                 static_cast<double>(petscScheme)};
-    // the PETSc scheme (last value) must be the same in the coupler configuration file, in this main0d and in the 1d solver
-    const int schemeCoupler = static_cast<int>(cfg[COUPLING_CONFIG_LENGTH-1]);
+                                                 static_cast<double>(petscScheme), static_cast<double>(N1d0dTot)};
+    // the PETSc scheme must be the same in the coupler configuration file, in this main0d and in the 1d solver
+    const int schemeCoupler = static_cast<int>(cfg[COUPLING_CONFIG_PETSC_SCHEME]);
     if (schemeCoupler != petscScheme) {
         std::cerr << "0d solver :: ERROR: PETSc scheme mismatch: the coupler configuration file uses "
                   << coupling_petsc_scheme_name(schemeCoupler) << ", but this main0d was built with "
@@ -359,16 +360,45 @@ int Model0d::initCoupling(int couplerRank, double T0, double pre_time, double si
                   << " use the same scheme (petsc_solver in solver_info of the user inputs)" << std::endl;
         return 1;
     }
-    for (int j = 0; j < COUPLING_CONFIG_LENGTH-1; ++j) {
+    for (int j = 0; j < COUPLING_CONFIG_LENGTH; ++j) {
+        if (j == COUPLING_CONFIG_PETSC_SCHEME) continue;
         if (std::abs(cfg[j]-mine[j]) > 1e-12*std::abs(mine[j])) {
-            std::cerr << "0d solver :: Error: coupling mismatch with the coupler [N1d0d, couple_volume_sum, T0, pre_time, sim_time, tolTime, tSave, tEnd]: coupler {";
-            for (int k = 0; k < COUPLING_CONFIG_LENGTH-1; ++k) std::cerr << (k ? ", " : "") << cfg[k];
+            std::cerr << "0d solver :: Error: coupling mismatch with the coupler [N1d0d, couple_volume_sum, T0, pre_time, sim_time, tolTime, tSave, tEnd, PETSc scheme, N1d0dTot]: coupler {";
+            for (int k = 0; k < COUPLING_CONFIG_LENGTH; ++k) std::cerr << (k ? ", " : "") << cfg[k];
             std::cerr << "} vs 0d solver {";
-            for (int k = 0; k < COUPLING_CONFIG_LENGTH-1; ++k) std::cerr << (k ? ", " : "") << mine[k];
+            for (int k = 0; k < COUPLING_CONFIG_LENGTH; ++k) std::cerr << (k ? ", " : "") << mine[k];
             std::cerr << "}" << std::endl;
             return 1;
         }
     }
+
+    // 1d-0d connections of the coupler's connections file (written with the model): they must be the ones compiled into
+    // this main0d (see COUPLING_CONN_FIELDS in coupler_mpi_common.h)
+    const std::vector<std::map<std::string, int>> compiled = compiledConnections();
+    const size_t nConn = static_cast<size_t>(N1d0dTot);
+    std::vector<double> connCoupler(nConn*COUPLING_CONN_NFIELDS, 0.0);
+    MPI_Probe(coupler_rank, TAG_CONN, MPI_COMM_WORLD, &status);
+    MPI_Get_count(&status, MPI_DOUBLE, &n);
+    if (n != static_cast<int>(connCoupler.size()) || compiled.size() != nConn) {
+        std::cerr << "0d solver :: ERROR: the coupler sent " << n << " values for the 1d-0d connections instead of "
+                  << connCoupler.size() << " (" << N1d0dTot << " connections x " << COUPLING_CONN_NFIELDS << " fields)" << std::endl;
+        return 1;
+    }
+    MPI_Recv(connCoupler.data(), n, MPI_DOUBLE, coupler_rank, TAG_CONN, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    for (size_t i = 0; i < nConn; ++i) {
+        const std::vector<double> row = coupling_connection_row(compiled[i]);
+        for (int f = 0; f < COUPLING_CONN_NFIELDS; ++f) {
+            const double valueCoupler = connCoupler[i*COUPLING_CONN_NFIELDS+f];
+            if (valueCoupler != row[f]) {
+                std::cerr << "0d solver :: ERROR: 1d-0d connection " << i+1 << ", " << COUPLING_CONN_FIELDS[f]
+                          << ": the connections file read by the coupler (<networkName>_coupler1d0d.json, see its log) has "
+                          << valueCoupler << ", but this main0d was built with " << row[f]
+                          << " (-1: no such field): rebuild main0d (make), or regenerate the model" << std::endl;
+                return 1;
+            }
+        }
+    }
+    std::cout << "0d solver :: 1d-0d connections checked with the coupler (" << N1d0dTot << ")" << std::endl;
     std::cout << "0d solver :: MPI coupling initialised, coupler is world rank " << coupler_rank << std::endl;
 
     return 0;

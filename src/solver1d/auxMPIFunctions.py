@@ -20,10 +20,19 @@ import numpy as np
 
 # Must match coupler_mpi_common.h
 COLOR_COUPLER, COLOR_SOLVER0D, COLOR_SOLVER1D = 0, 1, 2
-TAG_CONFIG, TAG_DONE, TAG_DT, TAG_DT_STEP, TAG_DATA, TAG_VOL = 1, 2, 10, 11, 20, 30
+TAG_CONFIG, TAG_DONE, TAG_CONN, TAG_DT, TAG_DT_STEP, TAG_DATA, TAG_VOL = 1, 2, 3, 10, 11, 20, 30
 DATA_LENGTH = 2     # doubles per time/time step message and per 1d-0d connection
-CONFIG_LENGTH = 9   # doubles in the TAG_CONFIG handshake:
-                    # {N1d0d, couple_volume_sum, T0, pre_time, sim_time, tolTime, tSave, tEnd, PETSc scheme code}
+CONFIG_LENGTH = 10  # doubles in the TAG_CONFIG handshake:
+                    # {N1d0d, couple_volume_sum, T0, pre_time, sim_time, tolTime, tSave, tEnd, PETSc scheme code, N1d0dTot}
+# Fields of a 1d-0d connection sent by the coupler right after the handshake (TAG_CONN), in this order, -1 for a field
+# that the connection does not have (COUPLING_CONN_FIELDS in coupler_mpi_common.h)
+CONN_FIELDS = ("vess1d_idx", "vess1d_bc_in0_or_out1", "vess0d_idx", "cellml_idx", "cellml_bc_in0_or_out1",
+               "cellml_bc_flow0_or_press1", "port_idx", "port_flow0_or_press1", "port_state0_or_var1", "R_T_variable_idx",
+               "pressure_bc_as_flow_bc", "port_volume_sum")
+# the fields used by the 1d solver, compared with its own copy of the connections file (the others are used only by the
+# 0d solver, so that a 1d copy from another generation is accepted if the 1d side of the connections is the same)
+CONN_FIELDS_1D = ("vess1d_idx", "vess1d_bc_in0_or_out1", "cellml_bc_in0_or_out1", "cellml_bc_flow0_or_press1",
+                  "port_flow0_or_press1", "port_volume_sum")
 # Codes of the PETSc time integration schemes sent in the handshake (CouplingPetscScheme in coupler_mpi_common.h):
 # 0 when the ODE solver is not PETSc
 PETSC_SCHEME_NONE = 0
@@ -83,13 +92,14 @@ class MPICoupling1D:
         self.N1d0d = 0
         print(f"1d solver :: MPI coupling initialised, coupler is world rank {self.coupler}", flush=True)
 
-    def handshake(self, N1d0d, couple_volume_sum, T0, pre_time, sim_time, petsc_solver):
+    def handshake(self, N1d0d, couple_volume_sum, T0, pre_time, sim_time, petsc_solver, N1d0dTot):
         """
         Receive the coupling layout from the coupler and check that it matches ours.
 
         petsc_solver: PETSc time integration scheme of the 1d solver ("BDF1", "CN" or "BDF2", PETSc_solver in input.ini),
         or None if its ODE solver is not PETSc: it must be the scheme of the coupler configuration file, with which
         the 0d solver was built (see CouplingPetscScheme in coupler_mpi_common.h).
+        N1d0dTot: number of connections (one-to-one and global) in the 1d copy of the connections file.
 
         Returns the time tolerance, the save time and the end time of the coupled simulation (COUPLING_TOL_TIME,
         coupling_save_time() and coupling_end_time() in coupler_mpi_common.h), which the 1d solver must use
@@ -130,8 +140,40 @@ class MPICoupling1D:
                        "(PETSc_solver in [numerics] of input.ini): regenerate the model, so that the coupler configuration "
                        "file (ODEsolver, PETSc_solver), the 0d solver and the 1d solver use the same scheme "
                        "(petsc_solver in solver_info of the user inputs)")
+        if int(cfg[9]) != int(N1d0dTot):
+            self.abort(f"1d solver :: ERROR: the connections file of the coupler has {int(cfg[9])} 1d-0d connections, but the "
+                       f"1d copy has {N1d0dTot}: regenerate the 1d input files (generate_1d: True in the user inputs)")
         self.N1d0d = int(N1d0d)
         return tolTime, tSave, tEnd
+
+    def check_connections(self, pipe_1d_0d_info, json_path):
+        """
+        Receive the 1d-0d connections of the coupler's connections file (written with the 0d model), right after the
+        handshake, and check that the fields used by the 1d solver (CONN_FIELDS_1D) are the same in its own copy
+        json_path (pipe_1d_0d_info): otherwise the 1d solver would exchange the wrong values with the 0d solver.
+        """
+        n_conn = len(pipe_1d_0d_info)
+        status = self.MPI.Status()
+        self.world.Probe(source=self.coupler, tag=TAG_CONN, status=status)
+        n = status.Get_count(self.MPI.DOUBLE)
+        if n != n_conn*len(CONN_FIELDS):
+            self.abort(f"1d solver :: ERROR: the coupler sent {n} values for the 1d-0d connections instead of "
+                       f"{n_conn*len(CONN_FIELDS)} ({n_conn} connections x {len(CONN_FIELDS)} fields)")
+        table = np.empty(n, dtype=np.float64)
+        self.world.Recv(table, source=self.coupler, tag=TAG_CONN)
+        table = table.reshape(n_conn, len(CONN_FIELDS))
+        for i in range(n_conn):
+            conn = pipe_1d_0d_info.get(str(i+1))
+            if conn is None:
+                self.abort(f"1d solver :: ERROR: connection \"{i+1}\" is missing in {json_path}: regenerate the 1d input files")
+            for field in CONN_FIELDS_1D:
+                value_coupler = table[i, CONN_FIELDS.index(field)]
+                value_1d = conn.get(field, -1)
+                if value_coupler != value_1d:
+                    self.abort(f"1d solver :: ERROR: 1d-0d connection {i+1}, {field}: the connections file of the 0d model "
+                               f"(read by the coupler) has {int(value_coupler)}, but the 1d copy {json_path} has {value_1d} "
+                               "(-1: no such field): the 1d input files come from another generation, regenerate them "
+                               "(generate_1d: True in the user inputs)")
 
     def recv_step_dt(self):
         """Receive {time, time step} proposed by the 0d solver at the start of a global time step."""
