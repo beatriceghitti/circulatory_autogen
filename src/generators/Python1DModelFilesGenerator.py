@@ -264,10 +264,12 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
     def end_str(iA, sideA):
         return f"the {'inlet' if sideA == 0 else 'outlet'} of 1D vessel {vess[iA]['name']}"
 
-    def check_1d_junction(iV, side):
-        # The node of the end (iV, side) has no 1d-0d connection and is not a boundary condition, so it must be a 1D
-        # junction: every 1D vessel end at that node must list only 1D vessels (in inp_vessels for an inlet, in
-        # out_vessels for an outlet). Stops with an error otherwise, instead of writing a wrong network.
+    def check_1d_junction(iV, side): # OK
+        """
+        The node of the end (iV, side) has no 1d-0d connection and is not a boundary condition, so it must be a 1D junction:
+        every 1D vessel end at that node must list only 1D vessels (in inp_vessels for an inlet, in out_vessels for an outlet).
+        Stops with an error otherwise, instead of writing a wrong network.
+        """
         for (iA, sideA) in node_ends(iV, side):
             col = 'inp_vessels' if sideA == 0 else 'out_vessels'
             listA = df_vess.at[iA,col]
