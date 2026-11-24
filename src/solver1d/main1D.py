@@ -36,7 +36,6 @@ EXPLICIT_ODE_SOLVERS = ("explEul", "Heun", "midpoint", "RK4") # fixed stages at 
 # "CN" (Crank-Nicolson), "BDF1" (BDF o1, backward Euler) or "BDF2" (BDF o2); see run1DBFmod()
 
 
-
 def get_column_mapping(filepath):
     with open(filepath, 'r') as f:
         header = f.readline()
@@ -55,6 +54,32 @@ def get_column_mapping(filepath):
             
     return mapping
 
+
+def read_0d_output(filepath):
+    """
+    Data rows of an output file of the 0d solver (sol0D_states.txt or sol0D_variables.txt), as a 2d array with one
+    row per output time, for the initial states of a coupled run (initStatePath).
+    Exits with an error if the file is missing, has no data row, or a row that is incomplete or not a finite number
+    (rather than starting silently from other initial values).
+    """
+    if not os.path.isfile(filepath):
+        sys.exit(f"1d solver :: ERROR: initial state file {filepath} not found (check initStatePath, which must end with '/')")
+    ncols = max(get_column_mapping(filepath).values(), default=-1) + 1 # time and the named columns of the header
+    rows = []
+    with open(filepath, 'r') as f:
+        for line in f:
+            if line.strip() and not line.lstrip().startswith('#'):
+                try:
+                    row = [float(x) for x in line.split()]
+                except ValueError:
+                    row = []
+                if len(row) != ncols or not np.all(np.isfinite(row)):
+                    sys.exit(f"1d solver :: ERROR: initial state file {filepath}: incomplete row, or not finite numbers, "
+                             f"at time {line.split()[0] if line.split() else '?'} ({len(row)} values for {ncols} columns)")
+                rows.append(row)
+    if not rows:
+        sys.exit(f"1d solver :: ERROR: initial state file {filepath} has no data row")
+    return np.array(rows)
 
 
 def run1DBFmod(AICstate=[], QICstate=[]):
@@ -911,11 +936,10 @@ def run1DBFmod(AICstate=[], QICstate=[]):
     # INITIAL CONDITIONS
     if initStatePath != "None" and ICstate==1:
         
+        states_data = read_0d_output(initStatesFile)
+        vars_data = read_0d_output(initVarsFile)
         map_states = get_column_mapping(initStatesFile)
         map_vars = get_column_mapping(initVarsFile)
-
-        states_data = np.genfromtxt(initStatesFile)
-        vars_data = np.genfromtxt(initVarsFile)
 
         idx_time = -1 # 0
         for i in range(nVess): 

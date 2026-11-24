@@ -124,6 +124,20 @@ int main(int argc, char* argv[]) {
     
     // open output file(s).
     std::string resFold = "./";
+    // The initial state files (initStatePath) must not be the output files of this run: openOutputFiles() empties
+    // these before they are read, by this solver and by the 1d solver.
+    if (initStatePath != "None") {
+        for (const char* name : {"sol0D_states.txt", "sol0D_variables.txt"}) {
+            struct stat sInit, sOut;
+            if (stat((initStatePath + name).c_str(), &sInit) == 0 && stat((resFold + name).c_str(), &sOut) == 0
+                && sInit.st_dev == sOut.st_dev && sInit.st_ino == sOut.st_ino) {
+                std::cerr << "0d solver :: ERROR: initStatePath " << initStatePath << " is the output folder of this run ("
+                          << resFold << "), whose files are emptied at start-up: copy sol0D_states.txt and"
+                          << " sol0D_variables.txt to another folder, and set initStatePath to it" << std::endl;
+                MPI_Abort(MPI_COMM_WORLD, 1);
+            }
+        }
+    }
     model0d->openOutputFiles(resFold);
     
     // int N1d0d = 0;

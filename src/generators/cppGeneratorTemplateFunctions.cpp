@@ -68,16 +68,19 @@ void Model0d::openOutputFiles(std::string outDir)
 	const char * aux;
 	aux = outDir.c_str();
 	status = mkdir(aux, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
-    if (status != 0){
-        std::cout << "0d solver :: openOutputFiles() could not create folder " << outDir.c_str() << " " << status << std::endl;
-        perror( "Error opening file" );
-        printf( "Error opening file: %s\n", strerror( errno ) );
-    }
+    std::string mkdirError = (status != 0 && errno != EEXIST) ? strerror(errno) : ""; // an existing folder is fine
 
 	std::string path = outDir+"sol0D_states.txt";
 	outFileStates.open(path.c_str());
     path = outDir+"sol0D_variables.txt";
 	outFileVars.open(path.c_str());
+    if (!outFileStates.is_open() || !outFileVars.is_open()) {
+        std::cerr << "0d solver :: ERROR: openOutputFiles() could not open the output files sol0D_states.txt and"
+                  << " sol0D_variables.txt in " << outDir;
+        if (!mkdirError.empty()) std::cerr << " (the folder could not be created: " << mkdirError << ")";
+        std::cerr << std::endl;
+        exit(1);
+    }
 
     int count = 0;
     std::vector<std::string> modules_list_tmp;
@@ -167,11 +170,18 @@ void Model0d::loadFromFile(const std::string& filename, double* targetArray,
                             const Model0d::VariableInfo infoArray[], size_t infoSize,
                             bool useFirstRow) 
 {
+    // Initial values requested from a file (initStatePath, e.g. the output of a previous run): stop with an error if
+    // they cannot be read, rather than silently starting from the default initial values.
+    auto fail = [&](const std::string& message) {
+        std::cerr << "0d solver :: ERROR: initial values from " << filename << ": " << message << std::endl;
+        exit(1);
+    };
+
     std::ifstream file(filename);
-    if (!file.is_open()) return;
+    if (!file.is_open()) fail("the file cannot be opened (check initStatePath, which must end with '/')");
 
     std::string headerLine;
-    if (!std::getline(file, headerLine)) return;
+    if (!std::getline(file, headerLine)) fail("the file is empty");
 
     // Build the list of all modules for parameter mapping
     std::vector<std::string> modules;
@@ -193,22 +203,20 @@ void Model0d::loadFromFile(const std::string& filename, double* targetArray,
 
     // Parse Header Columns
     std::vector<int> colToArrayIndex;
+    std::vector<std::string> unknownColumns;
     std::stringstream ss(headerLine);
     std::string item;
-    int colCounter = 0;
     while (std::getline(ss, item, ';')) {
         std::string cleaned = extractNameFromHeader(item);
+        if (cleaned.empty()) continue; // after the last ';' of the header: not a column
         if (cleaned.find("t[s]") != std::string::npos || cleaned == "t" || cleaned == "0") {
             colToArrayIndex.push_back(-1); // "time" is not stored inside the statesLoc or varLoc arrays
-            // std::printf("Column %2d | %-30s -> [SKIP: Time/VOI]\n", colCounter, cleaned.c_str());
         } else if (lookup.count(cleaned)) {
             colToArrayIndex.push_back(lookup[cleaned]); // match
-            // std::printf("Column %2d | %-30s -> Internal Index: %d\n", colCounter, cleaned.c_str(), lookup[cleaned]);
         } else {
             colToArrayIndex.push_back(-2); // unknown: file header contains a variable name that doesn't exist in STATE_INFO or VARIABLE_INFO
-            // std::printf("Column %2d | %-30s -> [WARNING: No Match Found]\n", colCounter, cleaned.c_str());
+            unknownColumns.push_back(cleaned);
         }
-        colCounter++;
     }
 
     // Select the Data Row (only first or last row for now)
@@ -223,22 +231,56 @@ void Model0d::loadFromFile(const std::string& filename, double* targetArray,
             if (!currentLine.empty()) dataLine = currentLine;
         }
     }
+    if (dataLine.empty()) fail("the file has no data row");
 
-    if (!dataLine.empty()) {
-        std::stringstream dataSS(dataLine);
-        double colVal;
-        int colIdx = 0;
-        int loadedCount = 0;
-        while (dataSS >> colVal && colIdx < colToArrayIndex.size()) {
-            int targetIdx = colToArrayIndex[colIdx];
-            if (targetIdx >= 0) {
-                targetArray[targetIdx] = colVal;
-                loadedCount++;
-            }
-            colIdx++;
+    // Read all the values of the row: it must be complete, with numbers only (e.g. not the NaN of a failed run)
+    std::vector<double> values;
+    std::stringstream dataSS(dataLine);
+    std::string token;
+    while (dataSS >> token) {
+        char* end = nullptr;
+        double value = std::strtod(token.c_str(), &end);
+        if (end == token.c_str() || *end != '\0' || !std::isfinite(value)) {
+            fail("value " + token + " in column " + std::to_string(values.size()) + " of the "
+                 + (useFirstRow ? "first" : "last") + " row is not a finite number");
         }
-        std::cout << "Successfully loaded " << loadedCount << " values from " << filename << std::endl;
+        values.push_back(value);
     }
+    if (values.size() != colToArrayIndex.size()) {
+        fail("the " + std::string(useFirstRow ? "first" : "last") + " row has " + std::to_string(values.size())
+             + " values, but the header has " + std::to_string(colToArrayIndex.size()) + " columns");
+    }
+
+    std::vector<bool> loaded(infoSize, false);
+    int loadedCount = 0;
+    for (size_t colIdx = 0; colIdx < values.size(); ++colIdx) {
+        int targetIdx = colToArrayIndex[colIdx];
+        if (targetIdx >= 0) {
+            targetArray[targetIdx] = values[colIdx];
+            if (!loaded[targetIdx]) loadedCount++;
+            loaded[targetIdx] = true;
+        }
+    }
+    if (loadedCount == 0) fail("no column matches a state or variable of this model (file of another model?)");
+
+    auto listNames = [](const std::vector<std::string>& names) {
+        std::string list;
+        for (size_t k = 0; k < names.size() && k < 5; ++k) list += (k ? ", " : "") + names[k];
+        return names.size() > 5 ? list + ", ..." : list;
+    };
+    if (!unknownColumns.empty()) {
+        std::cout << "0d solver :: WARNING: " << unknownColumns.size() << " columns of " << filename
+                  << " are not in this model, and are ignored: " << listNames(unknownColumns) << std::endl;
+    }
+    if (infoArray == STATE_INFO && loadedCount < static_cast<int>(STATE_COUNT)) {
+        std::vector<std::string> missing;
+        for (size_t i = 0; i < STATE_COUNT; ++i) {
+            if (!loaded[i]) missing.push_back(generateHeaderKey(STATE_INFO[i], modules));
+        }
+        std::cout << "0d solver :: WARNING: " << missing.size() << " states are not in " << filename
+                  << ", and keep their default initial values: " << listNames(missing) << std::endl;
+    }
+    std::cout << "Successfully loaded " << loadedCount << " values from " << filename << std::endl;
 }
 
 void Model0d::writeOutput(double voiLoc)
