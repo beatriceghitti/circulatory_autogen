@@ -434,8 +434,10 @@ class CSV0DModelParser(object):
         # if N1d0d>0:
         #     print(self.conn_1d_0d_info)
         
+        # <file_prefix>_coupler1d0d_unfinished.json, next to the split vessel arrays (folder of the generated model)
         idx_last = self.vessel_filename.rfind("vessel_array")
-        json_filename = self.vessel_filename[:idx_last] + "coupler1d0d_unfinished.json"
+        json_filename = os.path.join(os.path.dirname(self.vessel_filename_0d),
+                                     os.path.basename(self.vessel_filename[:idx_last]) + "coupler1d0d_unfinished.json")
         with open(json_filename, "w") as f:
             # vess1d_name is used only by the generators (the coupler reads this file as integer values only)
             json.dump({k: {kk: vv for kk, vv in conn.items() if kk != "vess1d_name"}

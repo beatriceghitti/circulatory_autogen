@@ -125,6 +125,7 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
                                             model_1d_config_path=model_1d_config_path,
                                             create_main_0d=create_main_0d,
                                             conn_1d_0d_info=parser.conn_1d_0d_info,
+                                            results_dir=inp_data_dict.get('cpp_results_dir'),
                                             DEBUG=DEBUG)
             
             if DEBUG:
@@ -132,7 +133,8 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
             
             code1d_generator = None
             if generate_1d:
-                vessels1d_csv_abs_path = inp_data_dict['vessels_csv_abs_path'] = os.path.join(inp_data_dict['resources_dir'], file_prefix_1d + '_vessel_array.csv')
+                # 1d vessel array split from the vessel array by the parser (in the folder of the generated model)
+                vessels1d_csv_abs_path = inp_data_dict['vessels_csv_abs_path'] = inp_data_dict['vessels_1d_csv_abs_path']
                 if 'solver_1d_type' in inp_data_dict:
                     if inp_data_dict['solver_1d_type'].startswith('py'):
                         code1d_generator = CVS1DPythonGenerator(model, file_prefix_1d, vessels1d_csv_abs_path, parameters_csv_abs_path,
@@ -157,7 +159,8 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
             code_generator = CVS0DCppGenerator(model, generated_models_subdir, file_prefix,
                                             resources_dir=resources_dir, solver=solver_cpp,
                                             dtSample=dtSample, dtSolver=dtSolver, nMaxSteps=nMaxSteps,
-                                            pre_time=pre_time, sim_time=sim_time, petsc_solver=petsc_solver)
+                                            pre_time=pre_time, sim_time=sim_time, petsc_solver=petsc_solver,
+                                            results_dir=inp_data_dict.get('cpp_results_dir'))
             if DEBUG:
                 print("Check point 2B")
 

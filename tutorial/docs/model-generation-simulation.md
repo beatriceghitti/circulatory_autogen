@@ -72,7 +72,7 @@ The following are the steps for model autogeneration.
 
     For `model_type: cellml_only`, four CellML files and a CSV file are generated. The CSV file includes model parameters, and the four CellML files contain the modules, parameters, units/constants, and main model.
 
-    For `model_type: python`, a Python module is also generated alongside the CellML files. For `model_type: cpp`, C++ source files are generated and may be written to `cpp_generated_models_dir` depending on your settings.
+    For `model_type: python`, a Python module is also generated alongside the CellML files. For `model_type: cpp`, C++ source files are generated and may be written to `cpp_generated_models_dir` depending on your settings. When a C++ model is run, its results are saved in `[cpp_results_dir]/[file_prefix]/`, where `cpp_results_dir` is an optional user input, by default `simulation_outputs_cpp` next to `generated_models_dir`.
 
     ![Generated files](images/generated-files.png)
 

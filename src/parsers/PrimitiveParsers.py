@@ -146,10 +146,12 @@ class YamlFileParser(object):
             inp_data_dict['generated_models_dir'] = os.path.join(user_files_dir, inp_data_dict['generated_models_dir'])
         else:
             inp_data_dict['generated_models_dir'] = os.path.join(root_dir, 'generated_models')
-        # paths of the cpp files and of the 1d input file of a cpp model (coupled to a 1d model): relative to the user
-        # inputs file, as the folders above, and absolute, as they are written into the generated run files
-        # (coupler_config.json, the run script, input.ini), which are used from other folders
-        for path_key in ('cpp_generated_models_dir', 'model_1d_config_path', 'cpp_1d_model_config_path'):
+        # paths of the cpp files, of the results of a cpp model (cpp_results_dir, optional: by default simulation_outputs_cpp
+        # next to generated_models_dir, see CVS0DCppGenerator) and of the 1d input file of a cpp model (coupled to a 1d
+        # model): relative to the user inputs file, as the folders above, and absolute, as they are written into the
+        # generated run files (coupler_config.json, the run script, the main of the 0d model, input.ini), which are used
+        # from other folders
+        for path_key in ('cpp_generated_models_dir', 'cpp_results_dir', 'model_1d_config_path', 'cpp_1d_model_config_path'):
             if inp_data_dict.get(path_key):
                 inp_data_dict[path_key] = os.path.abspath(os.path.join(user_files_dir, inp_data_dict[path_key]))
 
@@ -495,10 +497,11 @@ class YamlFileParser(object):
             file_prefix_0d = file_prefix + '_0d'
             file_prefix_1d = file_prefix + '_1d'
 
-            vessels_csv_abs_path = inp_data_dict['vessels_csv_abs_path']
-            idx_last = vessels_csv_abs_path.rfind(file_prefix)
-            vessel_filename_0d = vessels_csv_abs_path[:idx_last] + file_prefix_0d + vessels_csv_abs_path[idx_last+len(file_prefix):]
-            vessel_filename_1d = vessels_csv_abs_path[:idx_last] + file_prefix_1d + vessels_csv_abs_path[idx_last+len(file_prefix):]
+            # the 0d and 1d vessel arrays split from the vessel array (written by ModelParsers) are generated files: they
+            # go in the folder of the generated model, not in resources_dir, where they could overwrite the input files
+            # of other models (e.g. <file_prefix>_0d_vessel_array.csv of a fully 0d model named <file_prefix>_0d)
+            vessel_filename_0d = os.path.join(inp_data_dict['generated_models_subdir'], file_prefix_0d + '_vessel_array.csv')
+            vessel_filename_1d = os.path.join(inp_data_dict['generated_models_subdir'], file_prefix_1d + '_vessel_array.csv')
 
             inp_data_dict['file_prefix_0d'] = file_prefix_0d
             inp_data_dict['file_prefix_1d'] = file_prefix_1d
