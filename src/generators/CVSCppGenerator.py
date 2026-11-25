@@ -2957,6 +2957,16 @@ void Model0d::getExternalVariables(double voiLoc, double dtLoc, double *statesLo
         // ...wait to receive back...
         // Step 2: receive the values computed by the 1d solver for all the 1d-0d connections
         MPI_Recv(parent_data.data(), N1d0d*DATA_LENGTH, MPI_DOUBLE, coupler_rank, TAG_DATA, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        // stop if a value received from the 1d solver is not finite (inf or NaN), for any 0d solver, instead of
+        // continuing with it
+"""
+            for i, conn in enumerate(coupling_connections):
+                computeEV += f"""        if (!std::isfinite(parent_data[{i}*DATA_LENGTH+0])) {{
+            std::cerr << "0d solver :: ERROR: {conn['where']}: the value received from the 1d solver is not finite ("
+                      << parent_data[{i}*DATA_LENGTH+0] << ") at time " << voiLoc << " (time step " << dtLoc << "). Exiting."
+                      << std::endl;
+            exit(1);
+        }}
 """
             for i, (conn, plan) in enumerate(zip(coupling_connections, coupling_plans)):
                 if plan['converted']:
@@ -2989,6 +2999,12 @@ void Model0d::getExternalVariablesVolume(double *varLoc)
             pipeID = std::to_string(i+1);
             if (pipe_1d_0d_info[pipeID][\"port_volume_sum\"] == 1){
                 MPI_Recv(parent_data_vol.data(), DATA_LENGTH, MPI_DOUBLE, coupler_rank, TAG_VOL, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                if (!std::isfinite(parent_data_vol[0])) {
+                    std::cerr << \"0d solver :: ERROR: 1d-0d connection \" << pipeID << \" (volume sum): the 1d blood volume \"
+                              << \"received from the 1d solver is not finite (\" << parent_data_vol[0] << \") at time \" << voi
+                              << \". Exiting.\" << std::endl;
+                    exit(1);
+                }
                 idx_cellml = pipe_1d_0d_info[pipeID][\"cellml_idx\"];
                 varLoc[idx_cellml] = parent_data_vol[0];
             }
