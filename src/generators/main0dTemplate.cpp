@@ -32,29 +32,34 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    // main0d is the 0d solver of a coupled 1d-0d model: it only runs together with the coupler and the 1d solver, launched
+    // by launch_coupled_mpi.bash (which passes -coupled 1). A 0d-only model is generated with couple_to_1d: False, and
+    // has its own main() in its source file.
     bool is_coupled = false;
     for (int i = 1; i < argc; i++) {
-        if (std::strcmp(argv[i], "-coupled") == 0){
+        if (std::strcmp(argv[i], "-coupled") == 0 && i+1 < argc) {
             if (std::string(argv[++i]) == "1") is_coupled = true;
         }
     }
+    if (!is_coupled) {
+        std::cerr << "0d solver :: ERROR: main0d is the 0d solver of a coupled 1d-0d model: run it with run_coupler1d0d.bash "
+                  << "or launch_coupled_mpi.bash (which pass -coupled 1). For a 0d-only simulation, generate the model with "
+                  << "couple_to_1d: False." << std::endl;
+        return 1;
+    }
 
-    // MPI: in a coupled run, the 0d solver is launched by mpirun together with the coupler and the 1d solver.
+    // MPI: the 0d solver is launched by mpirun together with the coupler and the 1d solver.
     MPI_Init(&argc, &argv);
-    MPI_Comm comm0d = MPI_COMM_WORLD;
-    int coupler_rank = -1;
-    if (is_coupled) {
-        // This must come first: it is collective with the coupler and the 1d solver.
-        CouplingLayout layout = setup_coupling(COLOR_SOLVER0D);
-        comm0d = layout.local;
-        coupler_rank = layout.roots[COLOR_COUPLER];
-        int size0d;
-        MPI_Comm_size(comm0d, &size0d);
-        if (coupler_rank < 0 || size0d != 1) {
-            std::cerr << "0d solver :: ERROR: coupled mode needs the coupler in the same mpirun, "
-                      << "and exactly 1 MPI rank for the 0d solver (" << size0d << " given)" << std::endl;
-            MPI_Abort(MPI_COMM_WORLD, 1);
-        }
+    // This must come first: it is collective with the coupler and the 1d solver.
+    CouplingLayout layout = setup_coupling(COLOR_SOLVER0D);
+    MPI_Comm comm0d = layout.local;
+    int coupler_rank = layout.roots[COLOR_COUPLER];
+    int size0d;
+    MPI_Comm_size(comm0d, &size0d);
+    if (coupler_rank < 0 || size0d != 1) {
+        std::cerr << "0d solver :: ERROR: main0d needs the coupler in the same mpirun, "
+                  << "and exactly 1 MPI rank for the 0d solver (" << size0d << " given)" << std::endl;
+        MPI_Abort(MPI_COMM_WORLD, 1);
     }
 
     // PetscErrorCode ierr;
@@ -64,8 +69,6 @@ int main(int argc, char* argv[]) {
     // if (ierr != PETSC_SUCCESS) { std::cerr << "0d solver :: ERROR: PetscInitialize failed with error code " << ierr << std::endl; MPI_Abort(MPI_COMM_WORLD, 1); }
     // std::cout << "0d solver :: PETSc initialization complete : " << ierr << std::endl;
 
-    std::cout << "0d solver :: is_coupled : " << is_coupled << std::endl;
-    
     std::cout << "0d solver :: input arguments" << std::endl;
     for (int i = 0; i < argc; ++i) {
         std::cout << "arg[" << i << "]: " << std::quoted(argv[i]) << '\n';
@@ -77,29 +80,19 @@ int main(int argc, char* argv[]) {
     double sim_time = -1.0; // time simulated after pre_time, with the results saved
     std::string modelName;
     std::string initStatePath;
-    if (is_coupled) {
-        // values of the coupler configuration file (coupler_config.json), passed by launch_coupled_mpi.bash
-        for (int i = 1; i < argc; i++) {
-            if (std::strcmp(argv[i], "-ODEsolver") == 0) ODEsolver = std::string(argv[++i]);
-            else if (std::strcmp(argv[i], "-T0") == 0) T0 = std::stod(std::string(argv[++i]));
-            else if (std::strcmp(argv[i], "-preTime") == 0) pre_time = std::stod(std::string(argv[++i]));
-            else if (std::strcmp(argv[i], "-simTime") == 0) sim_time = std::stod(std::string(argv[++i]));
-            else if (std::strcmp(argv[i], "-networkName") == 0) modelName = std::string(argv[++i]);
-            else if (std::strcmp(argv[i], "-initStatePath") == 0) initStatePath = std::string(argv[++i]);
-        }
-        if (!(T0 > 0.0) || !(pre_time >= 0.0) || !(sim_time > 0.0)) {
-            std::cerr << "0d solver :: ERROR: -T0 > 0, -preTime >= 0 and -simTime > 0 are required in a coupled run (T0 = "
-                      << T0 << ", pre_time = " << pre_time << ", sim_time = " << sim_time << " given)" << std::endl;
-            MPI_Abort(MPI_COMM_WORLD, 1);
-        }
-    } else{
-        // values of the user inputs at generation (replaced by CVSCppGenerator.py)
-        ODEsolver = "CVODE"; // set at generation
-        T0 = 1.0; // set at generation
-        pre_time = 0.0; // set at generation
-        sim_time = 1.0; // set at generation
-        modelName = "model0d"; // set at generation
-        initStatePath = "None";
+    // values of the coupler configuration file (coupler_config.json), passed by launch_coupled_mpi.bash
+    for (int i = 1; i < argc; i++) {
+        if (std::strcmp(argv[i], "-ODEsolver") == 0) ODEsolver = std::string(argv[++i]);
+        else if (std::strcmp(argv[i], "-T0") == 0) T0 = std::stod(std::string(argv[++i]));
+        else if (std::strcmp(argv[i], "-preTime") == 0) pre_time = std::stod(std::string(argv[++i]));
+        else if (std::strcmp(argv[i], "-simTime") == 0) sim_time = std::stod(std::string(argv[++i]));
+        else if (std::strcmp(argv[i], "-networkName") == 0) modelName = std::string(argv[++i]);
+        else if (std::strcmp(argv[i], "-initStatePath") == 0) initStatePath = std::string(argv[++i]);
+    }
+    if (!(T0 > 0.0) || !(pre_time >= 0.0) || !(sim_time > 0.0)) {
+        std::cerr << "0d solver :: ERROR: -T0 > 0, -preTime >= 0 and -simTime > 0 are required in a coupled run (T0 = "
+                  << T0 << ", pre_time = " << pre_time << ", sim_time = " << sim_time << " given)" << std::endl;
+        MPI_Abort(MPI_COMM_WORLD, 1);
     }
     std::cout << "0d solver :: ODE solver : " << ODEsolver << std::endl;
     std::cout << "0d solver :: T0 : " << T0 << " || pre_time : " << pre_time << " || sim_time : " << sim_time << std::endl;
@@ -144,13 +137,11 @@ int main(int argc, char* argv[]) {
     // int N1d0d = 0;
     // int N1d0dTot = 0;
     // set up the MPI communication with the coupler for 1d-0d coupling.
-    if (is_coupled) {
-        // N1d0d = model0d->N1d0d;
-        // N1d0dTot = model0d->N1d0dTot;
-        int status = model0d->initCoupling(coupler_rank, T0, pre_time, sim_time);
-        if (status==1){
-            MPI_Abort(MPI_COMM_WORLD, 1);
-        }
+    // N1d0d = model0d->N1d0d;
+    // N1d0dTot = model0d->N1d0dTot;
+    int status = model0d->initCoupling(coupler_rank, T0, pre_time, sim_time);
+    if (status==1){
+        MPI_Abort(MPI_COMM_WORLD, 1);
     }
 
     const double tolTime = COUPLING_TOL_TIME; // shared with the coupler, see coupler_mpi_common.h
@@ -195,18 +186,8 @@ int main(int argc, char* argv[]) {
     // enter time loop.
     while (run_0d==true) {
         try {
-            if (!is_coupled) {
-                dt = dt0D;
-                if (time+dt>tEnd) {
-                    dt = tEnd-time;
-                }
-                //std::cout << "0d solver :: IT : " << it << std::setprecision(8) << " || time : " << time << " || dt : " << dt << std::endl;
-                model0d->solveOneStep(dt);
-            }
-            else {  
-                model0d->solveOneStep(dt0D);     
-                dt = model0d->dt;          
-            }
+            model0d->solveOneStep(dt0D);
+            dt = model0d->dt;
 
             it++;
             time = model0d->voi; // time already rounded within model0d->solveOneStepCVODE() / model0d->solveOneStepExpl() function
@@ -241,9 +222,7 @@ int main(int argc, char* argv[]) {
     // close output file(s).
     model0d->closeOutputFiles();
     // tell the coupler that the 0d solver has completed its time loop (this replaces closing the pipes).
-    if (is_coupled) {
-        model0d->finaliseCoupling();
-    }
+    model0d->finaliseCoupling();
     // free the memory.
     delete model0d;
     std::cout << "### 0d solver :: Object model0d deleted ###" << std::endl;

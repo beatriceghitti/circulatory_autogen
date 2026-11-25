@@ -3950,8 +3950,9 @@ void DelayHistory::dropBefore(double t)
         """
 
 
-        # TODO modify below with respect to circulatory_autogen inputs
-        # When coupling with a Cpp model that does the simulation, this isn't needed
+        #XXX MAIN FUNCTION
+        # When the 0d solver is coupled with a Pyhton/C++ model that does the simulation 
+        # (via the other solver or a coupler), the main() function  below is not needed.
         mainScript = """
 int main(int argc, char* argv[]){
 """
@@ -4098,6 +4099,7 @@ int main(int argc, char* argv[]){
                 f.write(mainScript)
         
         
+        #XXX MAIN SCRIPT FILE (for coupled models only)
         if (self.create_main and self.couple_to_1d):
             #XXX create also the main script main0d.cpp to be used to run the 0d model from the 1d-0d coupler
             with open(generators_dir_path+'/main0dTemplate.cpp', 'r') as file:
@@ -4105,12 +4107,9 @@ int main(int argc, char* argv[]){
 
             mainScript = """
 """
-            
-            # values of the user inputs at generation, used when main0d runs without the coupler
-            # (in a coupled run, main0d gets them from the coupler configuration file instead)
-            values_at_generation = {'ODEsolver': f'"{self.solver}"', 'T0': repr(self.T0),
-                                    'pre_time': repr(self.pre_time), 'sim_time': repr(self.sim_time),
-                                    'modelName': f'"{self.file_prefix}"'}
+
+            # main0d only runs coupled: it gets the ODE solver, T0, pre_time, sim_time and the model name from the
+            # coupler configuration file (passed by launch_coupled_mpi.bash)
             for line in lines:
                 if self.solver == 'PETSC':
                     if '// #include <petscsys.h>' in line:
@@ -4137,15 +4136,6 @@ int main(int argc, char* argv[]){
                     results0d_folder_tmp = "./"
                     line = line.replace(f"std::string resFold = \"{results0d_folder_tmp}\";", f"std::string resFold = \"{results0d_folder}\";")
                 
-                if '// set at generation' in line:
-                    name = line.split("=")[0].strip()
-                    if name not in values_at_generation:
-                        print(f"generate_cpp :: ERROR: unknown value '{name}' set at generation in main0dTemplate.cpp")
-                        exit(1)
-                    idx0 = line.find("=")
-                    idx1 = line.find(";")
-                    line = line.replace(line[idx0:idx1+1], f"= {values_at_generation.pop(name)};")
-
                 if 'const double dtSample = ' in line:
                     idx0 = line.find("=")
                     idx1 = line.find(";")
@@ -4164,15 +4154,12 @@ int main(int argc, char* argv[]){
                 
                 mainScript += line # + '\n'
 
-            if values_at_generation:
-                print(f"generate_cpp :: ERROR: values {list(values_at_generation)} not found in main0dTemplate.cpp")
-                exit(1)
-            
-            # save main to file    
+            # save main to file
             with open(os.path.join(self.cpp_generated_models_dir, 'main0d.cpp'), 'w') as f:
                 f.write(mainScript)
 
 
+        #XXX MAKEFILE and BASH SCRIPT to build and run the 0d solver (or the 1d-0d coupler)
         if not self.couple_to_1d:
             if self.solver == 'PETSC':
                 makefile = "MakefilePETSC"
