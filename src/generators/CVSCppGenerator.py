@@ -222,6 +222,51 @@ def libcellml_variable_lines(lines): # OK
     return body('computeRates(double '), body('computeVariables(double ')
 
 
+_RATE_INDEX_PATTERN = re.compile(r"rates\[(\d+)\]")
+
+def check_variables_use_no_rates(lines, variable_names, state_names):
+    """
+    The cpp solvers compute all the variables before the rates (computeRates() calls computeVariables() first), and
+    the outputs with the rates array of the 0d model, which CVODE and PETSc do not update. A variable computed from a
+    derivative (d(x)/dt in its equation, rates[k] in libCellML's code) would then take the rates of the previous
+    evaluation, and give wrong results without any error. No module of the repository has such a variable: stop the
+    generation with an error naming them, and the variables computed from them.
+
+    lines: the lines "variables[k] = ...;" computed at each evaluation of the rates (libCellML's code).
+    variable_names, state_names: names of the variables and of the states, by index (for the message).
+    """
+    direct = {}
+    for line2 in lines:
+        rates_used = {int(k) for k in _RATE_INDEX_PATTERN.findall(line2.split("=", 1)[1])}
+        if rates_used:
+            direct[_split_variable_line(line2)[0]] = rates_used
+    if not direct:
+        return
+    # the variables computed from them, directly or through other variables, take the previous rates too
+    affected = set(direct)
+    changed = True
+    while changed:
+        changed = False
+        for line2 in lines:
+            lhs, used = _split_variable_line(line2)
+            if lhs not in affected and used & affected:
+                affected.add(lhs)
+                changed = True
+    name = lambda k: variable_names.get(k, f"variables[{k}]")
+    message = ["generate_cpp :: ERROR: these variables are computed from a derivative d(x)/dt, which the cpp solvers do "
+               "not support (they compute the variables before the rates, so these variables would take the rates of "
+               "the previous evaluation and give wrong results):"]
+    for k in sorted(direct):
+        message.append(f"    {name(k)} uses the derivative of "
+                       + ", ".join(state_names.get(r, f"states[{r}]") for r in sorted(direct[k])))
+    indirect = sorted(affected - set(direct))
+    if indirect:
+        message.append("  and these variables are computed from them: " + ", ".join(name(k) for k in indirect))
+    message.append("  Write each of them from the right-hand side of the ODE of that state instead (e.g. "
+                   "y = 2*(f - k*V) instead of y = 2*dV/dt, for dV/dt = f - k*V).")
+    print("\n".join(message))
+    exit(1)
+
 def check_variables_computation_order(ordered_lines, all_lines, external_handled=()): # OK
     """
     Check the lines of the variables computed at each evaluation of the rates (computeNonExternalVariables() and
@@ -1740,6 +1785,14 @@ class CVS0DCppGenerator(object):
         for line2 in rates_var_lines + variables_var_lines:
             if 'external' not in line2 and line2 not in non_external_lines:
                 non_external_lines.append(line2)
+        # no variable computed from a derivative (rates[k]): they are computed before the rates
+        state_names = {}
+        for astate in analysed_model.states():
+            try:
+                state_names[astate.index()] = f"{astate.variable().parent().name()}/{astate.variable().name()}"
+            except Exception:
+                state_names[astate.index()] = astate.variable().name()
+        check_variables_use_no_rates(non_external_lines, variable_names, state_names)
         check_variables_computation_order(non_external_lines, rates_var_lines + variables_var_lines,
                                         coupling_received | coupling_volume_sum | {d['delayed_index'] for d in delay_variables})
                                         # a single set built from three unions with '|'
