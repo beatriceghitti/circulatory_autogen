@@ -42,6 +42,17 @@ class CSV0DModelParser(object):
 
         self.conn_1d_0d_info = None
 
+    @staticmethod
+    def __exit_uncoupled_bc(name_0d, vessel_type_0d, BC_type_0d, vess1d, side_1d):
+        # A 0d module next to a 1d vessel is coupled to it through a pressure or flow bc on that side: its BC_type must
+        # start with pp, vp, pv or vv (e.g. not nn, as the boundary modules).
+        before_after = "before the inlet" if side_1d == "inlet" else "after the outlet"
+        print(f"ERROR :: the 0D module {name_0d} (vessel_type {vessel_type_0d}, BC_type {BC_type_0d}) {before_after} of 1D vessel "
+              f"{vess1d} has no pressure or flow boundary condition on that side (its BC_type must start with pp, vp, pv or "
+              f"vv to be coupled to a 1D vessel). A boundary condition of a 1D vessel is given by an inlet_flow or "
+              f"inlet_pressure module before its inlet, or an outlet_flow or outlet_pressure module after its outlet.")
+        sys.exit(1)
+
     def split_0d_1d_vessel_array(self):
         vessels_df = pd.read_csv(self.vessel_filename, header=0, dtype=str, skipinitialspace=True) #, na_filter=False)
         vessels_df = vessels_df.fillna('')
@@ -170,30 +181,59 @@ class CSV0DModelParser(object):
                 vessels_df_0d.at[idxBVsum,"inp_vessels"] = ' '.join(inp_vess_BVsum_new)
 
 
-        #XXX TODO deal with K_tube modules (if present)
+        # Vessel-property modules of the 1d vessels (vessel_type material_prop_..., e.g. K_tube_<vessel>): the tube law of a
+        # 1d vessel is managed by the 1d solver, which takes its wall properties from the parameters of the module
+        # K_tube_<vessel> (E_K_tube_<vessel>, K_m_K_tube_<vessel>, see Python1DModelFilesGenerator.py). This module is
+        # removed from the vessel lists and from the 0d model, and must be named K_tube_<vessel>, in the out_vessels of
+        # the vessel, with BC_type nn and the vessel as inp_vessels. Recognised by its name (K_tube_...) or by its
+        # vessel_type, so that a vessel-property module named otherwise gets this message, not the ones of the 0d
+        # modules coupled to the 1d vessel below.
+        def is_vessel_property_module(name):
+            rows = vessels_df_0d[vessels_df_0d["name"]==name]
+            return len(rows) > 0 and str(rows["vessel_type"].iloc[0]).startswith("material_prop")
+        vessel_property_modules_to_drop = []
         for i in range(vessels_df_1d.shape[0]):
             vess1d = vessels_df_1d.at[i,"name"]
-            # inp_vessels = vessels_df_1d.at[i,"inp_vessels"].split()
-            out_vessels = vessels_df_1d.at[i,"out_vessels"].split()
-            for out_vess in out_vessels:
-                if out_vess.startswith("K_tube_"):
-                    out_vessels.remove(out_vess)
-                    vessels_df_1d.at[i,"out_vessels"] = ' '.join(out_vessels)
-                    found_K_mod = False
-                    for j in range(vessels_df_0d.shape[0]):
-                        if vessels_df_0d.at[j,"name"]==out_vess:
-                            if (vessels_df_0d.at[j,"BC_type"]=="nn" and vessels_df_0d.at[j,"inp_vessels"].split()[0]==vess1d):
-                                print(f"WARNING: found {out_vess} module coupled to FV1D_vessel {vess1d}. Removing it for now as tube law of 1D vessels is completely managed in 1D model solver.")
-                                vessels_df_0d.drop(index=j, inplace=True)
-                                vessels_df_0d = vessels_df_0d.reset_index(drop=True)
-                                found_K_mod = True
-                                break
-                            else:
-                                print(f"ERROR: wrong BC_type for {out_vess} module OR {out_vess} module incorrectly connected to FV1D_vessel {vess1d}. Check your vessel array file.")
-                                sys.exit(1)
-                    if not found_K_mod:
-                        print(f"ERROR: entry for {out_vess} module coupled to FV1D_vessel {vess1d} NOT found. Check your vessel array file.")
+            for column in ("inp_vessels", "out_vessels"):
+                kept = []
+                for name in vessels_df_1d.at[i,column].split():
+                    if not (name.startswith("K_tube_") or is_vessel_property_module(name)):
+                        kept.append(name)
+                        continue
+                    rows = vessels_df_0d[vessels_df_0d["name"]==name]
+                    if len(rows) == 0:
+                        print(f"ERROR: entry for {name} module coupled to FV1D_vessel {vess1d} NOT found. Check your vessel array file.")
                         sys.exit(1)
+                    problems = []
+                    if name != f"K_tube_{vess1d}":
+                        problems.append(f"it must be named K_tube_{vess1d}")
+                    if column != "out_vessels":
+                        problems.append(f"it must be in the out_vessels of {vess1d}, not in its inp_vessels")
+                    if rows["BC_type"].iloc[0] != "nn":
+                        problems.append(f"its BC_type must be nn, not {rows['BC_type'].iloc[0]}")
+                    if rows["inp_vessels"].iloc[0].split()[:1] != [vess1d]:
+                        problems.append(f"its inp_vessels must be {vess1d}")
+                    if problems:
+                        print(f"ERROR :: {name} (vessel_type {rows['vessel_type'].iloc[0]}) is a vessel-property module of 1D "
+                              f"vessel {vess1d}, whose wall properties the 1D solver takes from the parameters "
+                              f"E_K_tube_{vess1d} and K_m_K_tube_{vess1d}: {'; '.join(problems)}. Check your vessel array file.")
+                        sys.exit(1)
+                    print(f"WARNING: found {name} module coupled to FV1D_vessel {vess1d}. Removing it for now as tube law of 1D vessels is completely managed in 1D model solver.")
+                    vessel_property_modules_to_drop.append(name)
+                vessels_df_1d.at[i,column] = ' '.join(kept)
+        if vessel_property_modules_to_drop:
+            vessels_df_0d = vessels_df_0d[~vessels_df_0d["name"].isin(vessel_property_modules_to_drop)].reset_index(drop=True)
+        # a vessel-property module of a 1d vessel that the vessel does not list would stay in the 0d model
+        names_1d_vessels = set(vessels_df_1d["name"])
+        for j in range(vessels_df_0d.shape[0]):
+            if str(vessels_df_0d.at[j,"vessel_type"]).startswith("material_prop"):
+                vessels_of_module = [v for v in vessels_df_0d.at[j,"inp_vessels"].split() if v in names_1d_vessels]
+                if vessels_of_module:
+                    name = vessels_df_0d.at[j,"name"]
+                    print(f"ERROR :: {name} (vessel_type {vessels_df_0d.at[j,'vessel_type']}) is a vessel-property module of 1D "
+                          f"vessel {vessels_of_module[0]}, which does not list it: name it K_tube_{vessels_of_module[0]} and add "
+                          f"it to the out_vessels of {vessels_of_module[0]}. Check your vessel array file.")
+                    sys.exit(1)
 
 
         self.conn_1d_0d_info = {}
@@ -272,8 +312,9 @@ class CSV0DModelParser(object):
                                         port_0d = 1 # pressure port
                                         # if BC_type_1d=="nn":
                                         #     BC_type_1d = "pv" 
-                                    elif BC_type_0d.startswith("nn"):
-                                        pass
+                                    else: # e.g. nn: no pressure or flow bc on the side of the 1d vessel
+                                        self.__exit_uncoupled_bc(inp_vess, vessels_df_0d.at[idx0d_int,"vessel_type"], BC_type_0d,
+                                                                 vess1d, "inlet")
                                     self.conn_1d_0d_info[str(N1d0d+1)] = {"vess1d_idx": i,
                                                                         "vess1d_name": vess1d,
                                                                         "vess1d_bc_in0_or_out1": 0,
@@ -352,8 +393,9 @@ class CSV0DModelParser(object):
                                         port_0d = 1 # pressure port 
                                         # if BC_type_1d=="nn":
                                         #     BC_type_1d = "vp"
-                                    elif BC_type_0d.startswith("nn"):
-                                        pass
+                                    else: # e.g. nn: no pressure or flow bc on the side of the 1d vessel
+                                        self.__exit_uncoupled_bc(out_vess, vessels_df_0d.at[idx0d_int,"vessel_type"], BC_type_0d,
+                                                                 vess1d, "outlet")
                                     self.conn_1d_0d_info[str(N1d0d+1)] = {"vess1d_idx": i,
                                                                         "vess1d_name": vess1d,
                                                                         "vess1d_bc_in0_or_out1": 1,
