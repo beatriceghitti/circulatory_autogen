@@ -22,6 +22,7 @@
 #include <cstring>
 #include <string>
 #include <map>
+#include <stdexcept>
 
 // Each program identifies itself with a fixed "color". Using fixed colors (rather than
 // MPI_APPNUM) means that the order of the programs on the mpirun line does not matter.
@@ -39,7 +40,7 @@ enum CouplingColor {
 // a solver that starts a new time step without completing the previous one, instead of deadlocking.
 enum CouplingTag {
     TAG_CONFIG  = 1,   // coupler -> 0d/1d : handshake, COUPLING_CONFIG_LENGTH doubles
-                       //                    {N1d0d, couple_volume_sum, T0, pre_time, sim_time, COUPLING_TOL_TIME,
+                       //                    {N1d0d, number of global connections, T0, pre_time, sim_time, COUPLING_TOL_TIME,
                        //                     coupling_save_time(pre_time), coupling_end_time(pre_time, sim_time),
                        //                     PETSc scheme code (see CouplingPetscScheme), N1d0dTot}
     TAG_CONN    = 3,   // coupler -> 0d/1d : right after TAG_CONFIG, the 1d-0d connections of the coupler's connections file,
@@ -51,7 +52,8 @@ enum CouplingTag {
     TAG_DT_STEP = 11,  // 0d <-> coupler <-> 1d : {time, time step} at the start of a global time step
     TAG_DATA    = 20,  // 0d <-> coupler <-> 1d : N1d0d x COUPLING_DATA_LENGTH values (row-major),
                        //                         one row per one-to-one 1d-0d connection
-    TAG_VOL     = 30   // 1d -> coupler -> 0d : {1d volume sum, 0}
+    TAG_VOL     = 30   // 1d -> coupler -> 0d : number of global connections x COUPLING_DATA_LENGTH values (row-major),
+                       //                       one row per global connection (see "Global connections" below)
 };
 
 constexpr int COUPLING_DATA_LENGTH   = 2;  // doubles per time/time step message and per 1d-0d connection
@@ -167,6 +169,38 @@ inline const char* const COUPLING_CONN_FIELDS[] = {
     "pressure_bc_as_flow_bc", "port_volume_sum"
 };
 constexpr int COUPLING_CONN_NFIELDS = sizeof(COUPLING_CONN_FIELDS)/sizeof(COUPLING_CONN_FIELDS[0]);
+
+// Global connections: connections of the 0d model with the whole 1d model, not with one 1d vessel end (vess1d_idx = -1
+// in the connections file). They come after all the one-to-one connections in the connections file. Their values are
+// exchanged in one TAG_VOL message, 1d -> coupler -> 0d, with one row of COUPLING_DATA_LENGTH values per global
+// connection in the order of the connections file: once at start-up (initial values), then at the end of each global
+// time step. Types of global connections currently implemented (see coupling_connection_type() below):
+// - volume sum (port_volume_sum = 1 in the connections file): {total blood volume of the 1d model [m3], 0}.
+// A global connection of another type stops the coupled run at start-up (add its type here, in the 1d solver and in
+// the 0d generator together). The 1d solver has the same rules (connection_type() in auxMPIFunctions.py): KEEP THEM IN SYNC.
+enum CouplingConnectionType {
+    COUPLING_CONN_ONE_TO_ONE        = 0,  // between a 1d vessel end and a 0d module (exchanged in TAG_DATA)
+    COUPLING_CONN_GLOBAL_VOLUME_SUM = 1   // global: total blood volume of the 1d model (exchanged in TAG_VOL)
+};
+
+// Type of a connection of the connections file, or an exception with the reason if it has none of the types above.
+inline CouplingConnectionType coupling_connection_type(const std::map<std::string, int>& conn)
+{
+    auto field = [&](const char* name) { auto it = conn.find(name); return it == conn.end() ? -1 : it->second; };
+    if (conn.find("vess1d_idx") == conn.end()) {
+        throw std::runtime_error("the connection has no vess1d_idx field");
+    }
+    if (field("vess1d_idx") >= 0) {
+        if (field("port_volume_sum") == 1) {
+            throw std::runtime_error("a connection with a 1d vessel (vess1d_idx >= 0) cannot be a volume sum connection");
+        }
+        return COUPLING_CONN_ONE_TO_ONE;
+    }
+    if (field("port_volume_sum") == 1) return COUPLING_CONN_GLOBAL_VOLUME_SUM;
+    // This is where more types of global connections would be added.
+    throw std::runtime_error("unknown type of global connection (vess1d_idx = -1): the only type of global connection is "
+                             "the volume sum (port_volume_sum = 1)");
+}
 
 // Values of the fields of a connection, in the order of COUPLING_CONN_FIELDS (-1 for a field it does not have).
 inline std::vector<double> coupling_connection_row(const std::map<std::string, int>& conn)

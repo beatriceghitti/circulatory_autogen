@@ -161,6 +161,38 @@ def get_petsc_solver(petsc_solver, couple_to_1d):
         exit(1)
     return petsc_solver
 
+def global_coupling_connections(conn_1d_0d_info):
+    '''
+    Global 1d-0d connections of a coupled model (connections with the whole 1d model, vess1d_idx = -1, e.g. the volume
+    sum), as a list of (key, connection) in the order of conn_1d_0d_info. Their values are received from the 1d solver
+    in one TAG_VOL message, one row per global connection (see "Global connections" in coupler_mpi_common.h).
+    Same rules as the coupler (coupling_connection_type()) and the 1d solver (connection_type() in auxMPIFunctions.py):
+    the only type of global connection is the volume sum (port_volume_sum = 1), and the global connections come after
+    all the one-to-one connections. Exits with an error otherwise.
+    '''
+    global_conns = []
+    for i in range(len(conn_1d_0d_info)):
+        key = str(i+1)
+        conn = conn_1d_0d_info[key]
+        volume_sum = conn.get("port_volume_sum", -1) == 1
+        if conn["vess1d_idx"] >= 0:
+            if volume_sum:
+                print(f"generate_cpp :: ERROR: 1d-0d connection {key}: a connection with a 1d vessel (vess1d_idx >= 0) "
+                      "cannot be a volume sum connection")
+                exit(1)
+            if global_conns:
+                print(f"generate_cpp :: ERROR: 1d-0d connection {key} is a one-to-one connection after a global connection: "
+                      "the global connections (e.g. volume sum) must come last")
+                exit(1)
+        elif volume_sum:
+            global_conns.append((key, conn))
+        # This is where more types of global connections would be added.
+        else:
+            print(f"generate_cpp :: ERROR: 1d-0d connection {key}: unknown type of global connection (vess1d_idx = -1): "
+                  "the only type of global connection is the volume sum (port_volume_sum = 1)")
+            exit(1)
+    return global_conns
+
 # A line of libCellML's C code that computes a variable: "    variables[k] = ...;" (not a comparison "==").
 VARIABLE_LINE_PATTERN = re.compile(r"^\s*variables\[\d+\]\s*=(?!=)")
 
@@ -1645,10 +1677,12 @@ class CVS0DCppGenerator(object):
                     raise RuntimeError(f"1d-0d coupling: the resistance {ext_variable['control_variable'].name()} sent "
                                        f"with the coupling variable {ext_variable['variable'].name()} is not an algebraic "
                                        "variable or a constant of the analysed model (a state cannot be sent as resistance).")
+            # global connections (e.g. volume sum), after the one-to-one ones (also checks their types and order)
+            global_keys = {key for key, _ in global_coupling_connections(self.conn_1d_0d_info)}
             for i in range(len(self.conn_1d_0d_info)):
                 key = str(i+1)
                 conn = self.conn_1d_0d_info[key]
-                if conn.get("port_volume_sum", 0) == 1:
+                if key in global_keys:
                     if conn["cellml_idx"] >= 0:
                         coupling_volume_sum.add(conn["cellml_idx"])
                     continue
@@ -1918,7 +1952,7 @@ public:
             otherHeaderInits += """
     int N1d0d;
     int N1d0dTot;
-    int couple_volume_sum;
+    int N1d0dGlobal; // global connections (e.g. volume sum), after the one-to-one ones: rows of the TAG_VOL messages
     std::map<std::string, std::map<std::string, int>> pipe_1d_0d_info;
             """
 
@@ -1979,7 +2013,7 @@ public:
     // This flat layout lets all connections go out/come in in one MPI message.
     std::vector<double> zero_data_dt;    // {time, time step}, 0d -> coupler
     std::vector<double> parent_data_dt;  // {time, time step}, coupler -> 0d
-    std::vector<double> parent_data_vol; // {1d volume sum, 0}, coupler -> 0d
+    std::vector<double> parent_data_vol; // N1d0dGlobal x DATA_LENGTH (row-major), coupler -> 0d: global connections (TAG_VOL)
             """
 
         classFinisherHeader = """
@@ -2124,21 +2158,15 @@ Model0d::Model0d() :
         if self.couple_to_1d:
             # classInit += """    model1d_ptr(nullptr),
             N1d0dTot = len(self.conn_1d_0d_info)
+            # one-to-one connections first, then the global connections (see "Global connections" in coupler_mpi_common.h)
+            global_conns = global_coupling_connections(self.conn_1d_0d_info)
+            N1d0dGlobal = len(global_conns)
+            N1d0d = N1d0dTot - N1d0dGlobal
 
-            N1d0d = 0 
-            for i in range (N1d0dTot):
-                if "port_volume_sum" in self.conn_1d_0d_info[str(i+1)]:
-                    if self.conn_1d_0d_info[str(i+1)]["port_volume_sum"]==1:
-                        pass
-                    else:
-                        N1d0d +=1
-                else:
-                    N1d0d +=1
-            
             classInit += f"""
     N1d0d({N1d0d}),
     N1d0dTot({N1d0dTot}),
-    couple_volume_sum({1 if self.couple_volume_sum else 0}),
+    N1d0dGlobal({N1d0dGlobal}),
         """
     #     else:
     #         N1d0d = 0
@@ -2987,29 +3015,29 @@ void Model0d::getExternalVariables(double voiLoc, double dtLoc, double *statesLo
         computeEV += """
 void Model0d::getExternalVariablesVolume(double *varLoc)
 {
-    // Get volume sum from 1d to be added to 0d volume sum to track total volume in the system
-    // This is done at the end of each time step, but not for intermediate/internal time steps taken by the solver.  
+    // Values of the global connections (e.g. the 1d volume, added to the 0d volume sum to track the total volume in the
+    // system), received from the 1d solver at start-up (initialiseVariablesAndComputeConstants()) and at the end of each
+    // time step, not for the intermediate/internal time steps taken by the solver: one message, one row per global
+    // connection (see "Global connections" in coupler_mpi_common.h)
 """
-        if self.couple_volume_sum:
+        global_conns = global_coupling_connections(self.conn_1d_0d_info) if self.couple_to_1d else []
+        if global_conns:
             computeEV += """
-    if (N1d0dTot>0) {
-        std::string pipeID;
-        int idx_cellml;
-        for (int i = 0; i < N1d0dTot; ++i) {
-            pipeID = std::to_string(i+1);
-            if (pipe_1d_0d_info[pipeID][\"port_volume_sum\"] == 1){
-                MPI_Recv(parent_data_vol.data(), DATA_LENGTH, MPI_DOUBLE, coupler_rank, TAG_VOL, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                if (!std::isfinite(parent_data_vol[0])) {
-                    std::cerr << \"0d solver :: ERROR: 1d-0d connection \" << pipeID << \" (volume sum): the 1d blood volume \"
-                              << \"received from the 1d solver is not finite (\" << parent_data_vol[0] << \") at time \" << voi
-                              << \". Exiting.\" << std::endl;
-                    exit(1);
-                }
-                idx_cellml = pipe_1d_0d_info[pipeID][\"cellml_idx\"];
-                varLoc[idx_cellml] = parent_data_vol[0];
-            }
-        }
-    }
+    MPI_Recv(parent_data_vol.data(), N1d0dGlobal*DATA_LENGTH, MPI_DOUBLE, coupler_rank, TAG_VOL, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+"""
+            for row, (key, conn) in enumerate(global_conns):
+                # the only type of global connection so far: the volume sum, {total blood volume of the 1d model [m3], 0}
+                if conn["cellml_idx"] < 0:
+                    print(f"generate_cpp :: ERROR: 1d-0d connection {key} (volume sum): the 0d variable that receives the 1d "
+                          "volume was not found in the analysed model")
+                    exit(1)
+                computeEV += f"""    if (!std::isfinite(parent_data_vol[{row}*DATA_LENGTH+0])) {{
+        std::cerr << "0d solver :: ERROR: 1d-0d connection {key} (volume sum): the 1d blood volume received from the 1d "
+                  << "solver is not finite (" << parent_data_vol[{row}*DATA_LENGTH+0] << ") at time " << voi << ". Exiting."
+                  << std::endl;
+        exit(1);
+    }}
+    varLoc[{conn["cellml_idx"]}] = parent_data_vol[{row}*DATA_LENGTH+0]; // connection {key} (volume sum): 1d blood volume
 """
 
         computeEV += """

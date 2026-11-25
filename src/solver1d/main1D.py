@@ -171,6 +171,8 @@ def run1DBFmod(AICstate=[], QICstate=[]):
    
     N1d0dTot = 0
     N1d0d = 0
+    N1d0dGlobal = 0 # global connections (e.g. volume sum)
+    global_conn_types = []
     pipe_1d_0d_info = {}
     DATA_LENGTH = 0
     tolTime_coupler = None
@@ -183,15 +185,30 @@ def run1DBFmod(AICstate=[], QICstate=[]):
 
         N1d0dTot = len(pipe_1d_0d_info)
 
+        # one-to-one connections first, then the global connections (e.g. volume sum), exchanged in their own messages
+        # (TAG_VOL, one row per global connection): see connection_type() in auxMPIFunctions.py
+        # (global_conn_types: type of each global connection, in the order of the connections file)
         for i in range(N1d0dTot):
-            if "port_volume_sum" in pipe_1d_0d_info[str(i+1)]:
-                if pipe_1d_0d_info[str(i+1)]["port_volume_sum"]==1:
-                    pass
-                else:
-                    N1d0d +=1
-            else:
+            try:
+                conn_type = mpicpl.connection_type(pipe_1d_0d_info[str(i+1)])
+            except (KeyError, ValueError) as e:
+                sys.exit(f"1d solver :: ERROR: 1d-0d connection {i+1} of {conn1d0d_json_file}: {e}")
+            if conn_type == mpicpl.CONN_ONE_TO_ONE:
+                if global_conn_types:
+                    sys.exit(f"1d solver :: ERROR: 1d-0d connection {i+1} of {conn1d0d_json_file} is a one-to-one connection "
+                             "after a global connection: the global connections (e.g. volume sum) must come last")
                 N1d0d +=1
-        
+            else:
+                global_conn_types.append(conn_type)
+        N1d0dGlobal = len(global_conn_types)
+        # compute_tot_volume in input.ini (written with the connections file): only a check that both come from the same
+        # generation, the volume sum connections of the connections file decide what is sent
+        has_volume_sum = mpicpl.CONN_GLOBAL_VOLUME_SUM in global_conn_types
+        if has_volume_sum != couple_volume_sum:
+            sys.exit(f"1d solver :: ERROR: compute_tot_volume = {couple_volume_sum} in [network] of {init_file}, but the "
+                     f"connections file {conn1d0d_json_file} {'has' if has_volume_sum else 'has no'} volume sum connection: "
+                     "regenerate the 1d input files (generate_1d: True in the user inputs)")
+
         DATA_LENGTH = mpicpl.DATA_LENGTH # number of elements in the array (2)
         # no need to transfer dt for each 1d-0d coupling pair
         # as we have introduced dedicated messages to transfer time level and time step
@@ -199,7 +216,7 @@ def run1DBFmod(AICstate=[], QICstate=[]):
         # check that the coupler (and so the 0d solver) agrees on the coupling layout and on the PETSc scheme,
         # and get the time tolerance, the save time and the end time shared by the coupler and the 0d solver
         tolTime_coupler, tSaveIni_coupler, tEndGlob_coupler = cpl.handshake(
-            N1d0d, couple_volume_sum, T0, pre_time, sim_time, PETSc_solver if ODEsolver == 'PETSC' else None, N1d0dTot)
+            N1d0d, N1d0dGlobal, T0, pre_time, sim_time, PETSc_solver if ODEsolver == 'PETSC' else None, N1d0dTot)
         # check that this copy of the connections file matches the one of the 0d model (read by the coupler)
         cpl.check_connections(pipe_1d_0d_info, conn1d0d_json_file)
 
@@ -211,7 +228,8 @@ def run1DBFmod(AICstate=[], QICstate=[]):
     convR = convP/convQ # 1e+05 # resistance units conversion from [dyne s/cm5] to [J s/m6]
     convC = convQ/convP # 1.0e-05 # compliance units conversion from [cm5/dyne] to [m6/J] 
     mmHgDyncm2 = config.getfloat('model', 'mmHgDyncm2', fallback=1333.2238) # pressure units conversion from [mmHg] to [dyne/cm2]
-    
+    convV = 1e-06 # volume units conversion from [cm3] to [m3]
+
     # [network]
     nVess = config.getint('network', 'nVess', fallback=3)
     nNode = config.getint('network', 'nNode', fallback=4)
@@ -1044,17 +1062,26 @@ def run1DBFmod(AICstate=[], QICstate=[]):
                 T[i].x = np.copy(T[i].Qsol)
 
 
-    if is_coupled and couple_volume_sum:
-        # compute and send initial 1d total volume to 0d solver via the coupler 
-        # to compute total (0d+1d) volume in the system
-        VsumTot = 0.
-        for i in range(nVess): 
-            num.computeVesselVolume(v[i])
-            VsumTot += v[i].V
+    def global_connection_values():
+        # values of the global connections, sent to the 0d solver via the coupler (one message, one row of DATA_LENGTH
+        # values per global connection, in the order of the connections file): see connection_type() in auxMPIFunctions.py
+        rows = np.zeros((N1d0dGlobal, DATA_LENGTH), dtype=np.float64)
+        for k, conn_type in enumerate(global_conn_types):
+            if conn_type == mpicpl.CONN_GLOBAL_VOLUME_SUM:
+                # total blood volume of the 1d model, added to the 0d volume sum (total volume in the system)
+                VsumTot = 0.
+                for i in range(nVess):
+                    num.computeVesselVolume(v[i])
+                    VsumTot += v[i].V
+                rows[k, 0] = VsumTot*convV
+            # This is where more types of global connections would be added.
+            else: # not reachable: connection_type() accepts only the types above
+                sys.exit(f"1d solver :: ERROR: no value defined for the global connection type {conn_type}")
+        return rows
 
-        one_data_vol = np.zeros(DATA_LENGTH, dtype=np.float64)
-        one_data_vol[0] = VsumTot
-        cpl.send_vol(one_data_vol)
+    if is_coupled and N1d0dGlobal > 0:
+        # initial values of the global connections (e.g. the 1d volume, for the total (0d+1d) volume in the system)
+        cpl.send_vol(global_connection_values())
 
 
     # store the numerical solution at initial time (pre_time = 0): the initial conditions, as the 0d solver
@@ -1457,17 +1484,9 @@ def run1DBFmod(AICstate=[], QICstate=[]):
 
                 couplingFunc.solve_time_step_1D(time, dt, T0, v, T, Idxs1D, IdxsJhyb, IdxsTerm, nVess, nNode, nVar1D, FVord, numFlux, slopeType, termType, K, A0, mu, mTL, nTL, vessP0, Rwk1, Cwk, Rwk2, Pv, is_coupled)
 
-                if couple_volume_sum:
-                    # compute and send initial 1d total volume to 0d solver via the coupler 
-                    # to compute total (0d+1d) volume in the system
-                    VsumTot = 0.
-                    for i in range(nVess): 
-                        num.computeVesselVolume(v[i])
-                        VsumTot += v[i].V
-
-                    one_data_vol = np.zeros(DATA_LENGTH, dtype=np.float64)
-                    one_data_vol[0] = VsumTot
-                    cpl.send_vol(one_data_vol)
+                if N1d0dGlobal > 0:
+                    # values of the global connections at the end of the global time step (e.g. the 1d volume)
+                    cpl.send_vol(global_connection_values())
 
             # UPDATE TIME
             it +=1

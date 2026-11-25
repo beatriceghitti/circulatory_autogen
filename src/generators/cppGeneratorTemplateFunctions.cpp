@@ -341,7 +341,7 @@ int Model0d::initCoupling(int couplerRank, double T0, double pre_time, double si
     parent_data_dt.assign(DATA_LENGTH, 0.0);
     zero_data.assign(N1d0d*DATA_LENGTH, 0.0);   // one row of DATA_LENGTH values per 1d-0d connection
     parent_data.assign(N1d0d*DATA_LENGTH, 0.0); // one row of DATA_LENGTH values per 1d-0d connection
-    parent_data_vol.assign(DATA_LENGTH, 0.0);
+    parent_data_vol.assign(N1d0dGlobal*DATA_LENGTH, 0.0); // one row of DATA_LENGTH values per global connection
 
     // Handshake: check that the coupler agrees on the coupling layout.
     // First check its length: a coupler built from another version of coupler_mpi_common.h would
@@ -369,7 +369,7 @@ int Model0d::initCoupling(int couplerRank, double T0, double pre_time, double si
     const int petscScheme = PETSC_SCHEME_NONE; // not built with the PETSc ODE solver
 #endif
     
-const double mine[COUPLING_CONFIG_LENGTH] = {static_cast<double>(N1d0d), static_cast<double>(couple_volume_sum), T0, pre_time, sim_time,
+const double mine[COUPLING_CONFIG_LENGTH] = {static_cast<double>(N1d0d), static_cast<double>(N1d0dGlobal), T0, pre_time, sim_time,
                                                  tolTime, coupling_save_time(pre_time), coupling_end_time(pre_time, sim_time),
                                                  static_cast<double>(petscScheme), static_cast<double>(N1d0dTot)};
     // the PETSc scheme must be the same in the coupler configuration file, in this main0d and in the 1d solver
@@ -385,7 +385,7 @@ const double mine[COUPLING_CONFIG_LENGTH] = {static_cast<double>(N1d0d), static_
     for (int j = 0; j < COUPLING_CONFIG_LENGTH; ++j) {
         if (j == COUPLING_CONFIG_PETSC_SCHEME) continue;
         if (std::abs(cfg[j]-mine[j]) > 1e-12*std::abs(mine[j])) {
-            std::cerr << "0d solver :: Error: coupling mismatch with the coupler [N1d0d, couple_volume_sum, T0, pre_time, sim_time, tolTime, tSave, tEnd, PETSc scheme, N1d0dTot]: coupler {";
+            std::cerr << "0d solver :: Error: coupling mismatch with the coupler [N1d0d, number of global connections, T0, pre_time, sim_time, tolTime, tSave, tEnd, PETSc scheme, N1d0dTot]: coupler {";
             for (int k = 0; k < COUPLING_CONFIG_LENGTH; ++k) std::cerr << (k ? ", " : "") << cfg[k];
             std::cerr << "} vs 0d solver {";
             for (int k = 0; k < COUPLING_CONFIG_LENGTH; ++k) std::cerr << (k ? ", " : "") << mine[k];

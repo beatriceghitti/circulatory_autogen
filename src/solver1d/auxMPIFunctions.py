@@ -23,7 +23,8 @@ COLOR_COUPLER, COLOR_SOLVER0D, COLOR_SOLVER1D = 0, 1, 2
 TAG_CONFIG, TAG_DONE, TAG_CONN, TAG_DT, TAG_DT_STEP, TAG_DATA, TAG_VOL = 1, 2, 3, 10, 11, 20, 30
 DATA_LENGTH = 2     # doubles per time/time step message and per 1d-0d connection
 CONFIG_LENGTH = 10  # doubles in the TAG_CONFIG handshake:
-                    # {N1d0d, couple_volume_sum, T0, pre_time, sim_time, tolTime, tSave, tEnd, PETSc scheme code, N1d0dTot}
+                    # {N1d0d, number of global connections, T0, pre_time, sim_time, tolTime, tSave, tEnd,
+                    #  PETSc scheme code, N1d0dTot}
 # Fields of a 1d-0d connection sent by the coupler right after the handshake (TAG_CONN), in this order, -1 for a field
 # that the connection does not have (COUPLING_CONN_FIELDS in coupler_mpi_common.h)
 CONN_FIELDS = ("vess1d_idx", "vess1d_bc_in0_or_out1", "vess0d_idx", "cellml_idx", "cellml_bc_in0_or_out1",
@@ -33,6 +34,33 @@ CONN_FIELDS = ("vess1d_idx", "vess1d_bc_in0_or_out1", "vess0d_idx", "cellml_idx"
 # 0d solver, so that a 1d copy from another generation is accepted if the 1d side of the connections is the same)
 CONN_FIELDS_1D = ("vess1d_idx", "vess1d_bc_in0_or_out1", "cellml_bc_in0_or_out1", "cellml_bc_flow0_or_press1",
                   "port_flow0_or_press1", "port_volume_sum")
+# Types of 1d-0d connections (CouplingConnectionType in coupler_mpi_common.h, see "Global connections" there):
+# - one-to-one: between a 1d vessel end and a 0d module, exchanged in TAG_DATA;
+# - global (vess1d_idx = -1), after all the one-to-one connections, exchanged in TAG_VOL (one message, one row of
+#   DATA_LENGTH values per global connection, at start-up and at the end of each global time step). The only type of
+#   global connection so far is the volume sum (port_volume_sum = 1): {total blood volume of the 1d model [m3], 0}.
+CONN_ONE_TO_ONE, CONN_GLOBAL_VOLUME_SUM = 0, 1
+
+
+def connection_type(conn):
+    """
+    Type of a connection of the connections file (CONN_ONE_TO_ONE or CONN_GLOBAL_VOLUME_SUM), as
+    coupling_connection_type() in coupler_mpi_common.h. KEEP THEM IN SYNC. Raises ValueError with the reason if the
+    connection has none of these types.
+    """
+    if "vess1d_idx" not in conn:
+        raise ValueError("the connection has no vess1d_idx field")
+    volume_sum = conn.get("port_volume_sum", -1) == 1
+    if conn["vess1d_idx"] >= 0:
+        if volume_sum:
+            raise ValueError("a connection with a 1d vessel (vess1d_idx >= 0) cannot be a volume sum connection")
+        return CONN_ONE_TO_ONE
+    if volume_sum:
+        return CONN_GLOBAL_VOLUME_SUM
+    raise ValueError("unknown type of global connection (vess1d_idx = -1): the only type of global connection is the "
+                     "volume sum (port_volume_sum = 1)")
+
+
 # Codes of the PETSc time integration schemes sent in the handshake (CouplingPetscScheme in coupler_mpi_common.h):
 # 0 when the ODE solver is not PETSc
 PETSC_SCHEME_NONE = 0
@@ -90,12 +118,14 @@ class MPICoupling1D:
             self.abort(f"1d solver :: Error: the 1d solver must run on exactly 1 MPI rank, not {self.local.Get_size()}")
 
         self.N1d0d = 0
+        self.N1d0dGlobal = 0
         print(f"1d solver :: MPI coupling initialised, coupler is world rank {self.coupler}", flush=True)
 
-    def handshake(self, N1d0d, couple_volume_sum, T0, pre_time, sim_time, petsc_solver, N1d0dTot):
+    def handshake(self, N1d0d, N1d0dGlobal, T0, pre_time, sim_time, petsc_solver, N1d0dTot):
         """
         Receive the coupling layout from the coupler and check that it matches ours.
 
+        N1d0dGlobal: number of global connections (e.g. volume sum), the rows of the TAG_VOL messages.
         petsc_solver: PETSc time integration scheme of the 1d solver ("BDF1", "CN" or "BDF2", PETSc_solver in input.ini),
         or None if its ODE solver is not PETSc: it must be the scheme of the coupler configuration file, with which
         the 0d solver was built (see CouplingPetscScheme in coupler_mpi_common.h).
@@ -115,10 +145,10 @@ class MPICoupling1D:
                        "the coupler and this 1d solver come from different versions (rebuild the coupler)")
         cfg = np.empty(CONFIG_LENGTH, dtype=np.float64)
         self.world.Recv(cfg, source=self.coupler, tag=TAG_CONFIG)
-        mine = np.array([N1d0d, 1.0 if couple_volume_sum else 0.0, T0, pre_time, sim_time], dtype=np.float64)
+        mine = np.array([N1d0d, N1d0dGlobal, T0, pre_time, sim_time], dtype=np.float64)
         if not np.allclose(cfg[:5], mine, rtol=1e-12, atol=0.0):
             self.abort("1d solver :: Error: coupling mismatch with the coupler "
-                       f"[N1d0d, couple_volume_sum, T0, pre_time, sim_time]: coupler {cfg[:5].tolist()} "
+                       f"[N1d0d, number of global connections, T0, pre_time, sim_time]: coupler {cfg[:5].tolist()} "
                        f"vs 1d solver {mine.tolist()}")
         tolTime = float(cfg[5])
         if not tolTime > 0.0:
@@ -144,6 +174,7 @@ class MPICoupling1D:
             self.abort(f"1d solver :: ERROR: the connections file of the coupler has {int(cfg[9])} 1d-0d connections, but the "
                        f"1d copy has {N1d0dTot}: regenerate the 1d input files (generate_1d: True in the user inputs)")
         self.N1d0d = int(N1d0d)
+        self.N1d0dGlobal = int(N1d0dGlobal)
         return tolTime, tSave, tEnd
 
     def check_connections(self, pipe_1d_0d_info, json_path):
@@ -208,8 +239,11 @@ class MPICoupling1D:
             self._send(data, self.N1d0d * DATA_LENGTH, TAG_DATA)
 
     def send_vol(self, data):
-        """Send {1d volume sum, 0} to the coupler."""
-        self._send(data, DATA_LENGTH, TAG_VOL)
+        """
+        Send the values of the global connections (e.g. volume sum) to the coupler: array (N1d0dGlobal, DATA_LENGTH),
+        one row per global connection in the order of the connections file (see connection_type()).
+        """
+        self._send(data, self.N1d0dGlobal * DATA_LENGTH, TAG_VOL)
 
     def finalize(self, time):
         """Tell the coupler that the 1d solver has completed its time loop, then finalise MPI."""

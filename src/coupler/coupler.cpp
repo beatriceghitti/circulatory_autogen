@@ -11,7 +11,7 @@
 //
 // Message protocol (see coupler_mpi_common.h):
 //   [start]     coupler -> 0d, 1d : TAG_CONFIG handshake, then TAG_CONN (1d-0d connections, see COUPLING_CONN_FIELDS)
-//               (if volume sum) 1d -> coupler -> 0d : TAG_VOL, initial 1d volume
+//               (if global connections, e.g. volume sum) 1d -> coupler -> 0d : TAG_VOL, their initial values
 //   [each global time step]
 //               0d -> coupler -> 1d : TAG_DT_STEP {time, dt proposed by 0d}
 //               1d -> coupler -> 0d : TAG_DT_STEP {time, dt agreed}
@@ -23,7 +23,8 @@
 //               0d -> coupler -> 1d : TAG_DT {time reached, -999 = COUPLING_END_OF_STEP}
 //               1d -> coupler -> 0d : TAG_DT (echo)
 //   The coupler checks all the times and time steps it relays (see "Time synchronisation" in coupler_mpi_common.h).
-//               (if volume sum) 1d -> coupler -> 0d : TAG_VOL
+//               (if global connections, e.g. volume sum) 1d -> coupler -> 0d : TAG_VOL, their values
+//   (TAG_VOL: one message with one row per global connection, see "Global connections" in coupler_mpi_common.h)
 //   [end]       0d -> coupler, 1d -> coupler : TAG_DONE
 //               The 0d solver must reach the end time pre_time + sim_time first: if it stops before, the 1d solver is
 //               still waiting for the next time step, so the coupler aborts the job instead of waiting.
@@ -68,7 +69,7 @@ private:
     std::string connectionsFile;    // connections file of the 0d model (<networkName>_coupler1d0d.json)
     std::vector<double> connTable;  // its connections, N1d0dTot x COUPLING_CONN_NFIELDS values (see COUPLING_CONN_FIELDS)
     AuxCouplerFun auxFun;
-    bool couple_volume_sum = false;
+    size_t N1d0dGlobal = 0; // global connections (e.g. volume sum), after the one-to-one ones: N1d0dTot - N1d0d
 
     const double tolTime = COUPLING_TOL_TIME; // shared with the 0d solver
     static constexpr int DL = COUPLING_DATA_LENGTH;
@@ -210,19 +211,26 @@ public:
         std::map<std::string, std::map<std::string, int>> pipe_1d_0d_info = auxFun.deserializeFromJson(dataJson);
         N1d0dTot = pipe_1d_0d_info.size();
         N1d0d = 0;
-        // XXX here we are assuming that these 1d-0d connections are ordered such that the volume sum connection is the last one.
-        // TODO make sure this is always the case, by ordering the connections based on their type.
+        N1d0dGlobal = 0;
+        // one-to-one connections first, then the global connections (e.g. volume sum), which have their own messages
+        // (TAG_VOL): see "Global connections" in coupler_mpi_common.h
         for (size_t i = 0; i < N1d0dTot; ++i) {
-            if (pipe_1d_0d_info[std::to_string(i+1)].find("port_volume_sum") != pipe_1d_0d_info[std::to_string(i+1)].end()){
-                if (pipe_1d_0d_info[std::to_string(i+1)]["port_volume_sum"] == 1){
-                    // this is a 'global' volume sum connection, for which we will use dedicated messages (as for the time step)
-                    couple_volume_sum = true;
+            const std::string key = std::to_string(i+1);
+            if (pipe_1d_0d_info.find(key) == pipe_1d_0d_info.end()) continue; // reported below
+            CouplingConnectionType type;
+            try {
+                type = coupling_connection_type(pipe_1d_0d_info[key]);
+            } catch (const std::exception& e) {
+                throw std::runtime_error("Coupler1d0d::init() : connection " + key + " of " + fileJson + ": " + e.what());
+            }
+            if (type == COUPLING_CONN_ONE_TO_ONE) {
+                if (N1d0dGlobal > 0) {
+                    throw std::runtime_error("Coupler1d0d::init() : connection " + key + " of " + fileJson + " is a one-to-one "
+                                             "connection after a global connection: the global connections must come last");
                 }
-            // here we could add other 'special' global connections for which we want dedicated messages
-            // we are assuming that all these special connections are stored at the end of the pipe_1d_0d_info file/structure
-            } else{
-                // this is a 'standard' one-to-one 1d-0d connection
                 N1d0d++;
+            } else {
+                N1d0dGlobal++;
             }
         }
         // connections sent to both solvers at start-up, in the order of the file (see COUPLING_CONN_FIELDS)
@@ -243,7 +251,8 @@ public:
         std::cout << "Coupler1d0d :: results saved from time " << tSave << " || end time : " << tEnd
                   << " || number of cardiac cycles (pre_time + sim_time)/T0 : " << (pre_time + sim_time)/T0 << std::endl;
         std::cout << "Coupler1d0d :: MPI world ranks : 0d solver " << rank0d << " || 1d solver " << rank1d << std::endl;
-        std::cout << "Number of one-to-one 1d-0d connections: " << N1d0d << std::endl;
+        std::cout << "Number of one-to-one 1d-0d connections: " << N1d0d << " || global connections (e.g. volume sum): "
+                  << N1d0dGlobal << std::endl;
         std::cout << "Total number of connections (including global connections): " << N1d0dTot << " || With time step connection: "  << N1d0dTot+1 << std::endl;
     }
 
@@ -252,8 +261,8 @@ public:
         // tolTime, tSave and tEnd: checked by the 0d solver, adopted by the 1d solver
         // (see COUPLING_TOL_TIME, coupling_save_time() and coupling_end_time() in coupler_mpi_common.h);
         // petscScheme: checked by both solvers (see CouplingPetscScheme); N1d0dTot: number of connections (one-to-one
-        // and global) in the TAG_CONN message that follows
-        std::vector<double> cfg = {static_cast<double>(N1d0d), couple_volume_sum ? 1.0 : 0.0, T0, pre_time, sim_time,
+        // and global) in the TAG_CONN message that follows; N1d0dGlobal: rows of the TAG_VOL messages
+        std::vector<double> cfg = {static_cast<double>(N1d0d), static_cast<double>(N1d0dGlobal), T0, pre_time, sim_time,
                                    tolTime, tSave, tEnd, static_cast<double>(petscScheme), static_cast<double>(N1d0dTot)};
         if (cfg.size() != COUPLING_CONFIG_LENGTH) {
             throw std::runtime_error("Coupler1d0d::handshake() : the handshake message does not have COUPLING_CONFIG_LENGTH values");
@@ -274,20 +283,21 @@ public:
         double dtLoc = 0.;
         double timeLoc = 0.;
 
-        std::vector<double> one_buffer(N1d0d*DL);
-        std::vector<double> zero_buffer(N1d0d*DL);
+        std::vector<double> one_buffer(N1d0d*DL); // one row per one-to-one connection
+        std::vector<double> zero_buffer(N1d0d*DL); // one row per one-to-one connection
         std::vector<double> one_buffer_dt(DL);
         std::vector<double> zero_buffer_dt(DL);
-        std::vector<double> one_buffer_vol(DL);
+        std::vector<double> one_buffer_vol(N1d0dGlobal*DL); // one row per global connection
         std::vector<double> zero_done(DL);
         std::vector<double> one_done(DL);
 
         int count = 0;
         int step = 0; // number of global time steps started
 
-        // this is to initialise volume sum exchange from main1d to main0d, to compute total volume in the system
-        if (couple_volume_sum){
-            recv(one_buffer_vol, rank1d, TAG_VOL, "the initial volume sum");
+        // initial values of the global connections (e.g. the 1d volume, for the total volume in the system), from main1d to
+        // main0d: one message, one row per global connection
+        if (N1d0dGlobal > 0){
+            recv(one_buffer_vol, rank1d, TAG_VOL, "the initial values of the global connections (e.g. volume sum)");
             send(one_buffer_vol, rank0d, TAG_VOL);
         }
 
@@ -377,9 +387,9 @@ public:
                 recv(one_buffer_dt, rank1d, TAG_DT, "the end of the global time step");
                 send(one_buffer_dt, rank0d, TAG_DT);
 
-                if (couple_volume_sum){
-                    // read volume sum data from main1D and send it to main0d
-                    recv(one_buffer_vol, rank1d, TAG_VOL, "the volume sum");
+                if (N1d0dGlobal > 0){
+                    // values of the global connections (e.g. volume sum) from main1D, sent to main0d
+                    recv(one_buffer_vol, rank1d, TAG_VOL, "the values of the global connections (e.g. volume sum)");
                     send(one_buffer_vol, rank0d, TAG_VOL);
                 }
 
