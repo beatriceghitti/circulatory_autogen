@@ -17,9 +17,13 @@
 #               to build the coupler and main0d, and by mpi4py in the Python of the 1d solver.
 #   COUPLER     coupler executable (default: the 'coupler' next to this script)
 #   PYTHON_CFG  Python used here only to read the JSON configuration file (default: python3)
-#   SKIP_MPI_CHECK  0 (default): before launching, check that mpirun, the coupler, the 0d solver and
-#               the mpi4py of the 1d solver all use the same MPI (implementation and version), and stop
+#   SKIP_MPI_CHECK  0 (default): before launching, check that mpirun, the coupler, the 0d solver (and the
+#               PETSc it is built with, if any) and the mpi4py of the 1d solver all use the same MPI
+#               (implementation and version), and that the programs load the same MPI library file; stop
 #               with an error otherwise. 1: skip this check.
+#
+# The programs of the configuration file (python_path, solver0d_path) and COUPLER can be given by their
+# name only (e.g. python3): they are then looked up in PATH.
 
 # Make the script stop at the first error.
 set -euo pipefail
@@ -92,8 +96,21 @@ SIMTIME="${V[7]}"
 NETWORK="${V[8]}"
 INITSTATE="${V[9]}"
 
+# A program given by its name only (e.g. python_path: python3) is looked up in PATH, as mpirun would; the path found is
+# the one checked and launched.
+resolve_program() {
+    if [[ "$1" != */* ]] && command -v -- "$1" > /dev/null 2>&1; then
+        command -v -- "$1"
+    else
+        echo "$1"
+    fi
+}
+COUPLER="$(resolve_program "$COUPLER")"
+SOLVER0D="$(resolve_program "$SOLVER0D")"
+PYTHON="$(resolve_program "$PYTHON")"
+
 for f in "$COUPLER" "$SOLVER0D" "$PYTHON"; do
-    if [[ ! -x "$f" ]]; then
+    if [[ ! -x "$f" || -d "$f" ]]; then
         echo "launch_coupled_mpi :: Error: $f not found or not executable" >&2
         exit 1
     fi
@@ -142,8 +159,67 @@ add_mpi_entry() {
     MPI_TEXTS+=("$2")
 }
 
+# MPI library files loaded by each program, resolved by the dynamic linker (ldd) and then by realpath: Open MPI 3, 4 and 5
+# all have the same library name (libmpi.so.40), so the files are compared, not their names.
+MPI_LIB_NAMES=()
+MPI_LIB_FILES=()
+add_mpi_library_files() {   # <label> <program or shared library>
+    local label="$1" bin="$2" name path files=""
+    while read -r name path; do
+        [[ -n "$name" ]] || continue
+        if [[ -z "$path" || "$path" == "not" ]]; then   # "libmpi.so.40 => not found"
+            mpi_check_error "the MPI library $name of the $label ($bin) is not found"
+        fi
+        files+="$(realpath -- "$path")"$'\n'
+    done < <( (ldd "$bin" 2> /dev/null || true) | awk '$1 ~ /^lib(mpi|mpich)\.so/ {print $1, $3}')
+    files="$(sort -u <<< "$files" | grep . || true)"
+    if [[ $(grep -c . <<< "$files") -gt 1 ]]; then
+        mpi_check_error "the $label ($bin) loads more than one MPI library:"$'\n'"$files"
+    fi
+    if [[ -n "$files" ]]; then
+        MPI_LIB_NAMES+=("$label")
+        MPI_LIB_FILES+=("$files")
+    fi
+}
+
+# MPI that PETSc was built with, for a 0d solver built with PETSc ("Open MPI x.y.z" or "MPICH x", nothing otherwise):
+# from the mpi.h of the MPI include folder of the PETSc installation (MPICC_SHOW in lib/petsc/conf/petscvariables,
+# next to libpetsc, or the include folder of PETSc for an MPI installed with it). A PETSc built with another version of
+# the same MPI as main0d (e.g. Open MPI 4 and 5, both libmpi.so.40) loads the same library file, so it would not be
+# seen otherwise.
+petsc_mpi_version() {   # <0d solver>
+    local lib conf dirs d h major minor release version
+    lib="$( (ldd "$1" 2> /dev/null || true) | awk '$1 ~ /^libpetsc\.so/ {print $3; exit}')"
+    [[ -n "$lib" && "$lib" != "not" ]] || return 0
+    conf="$(dirname -- "$lib")/petsc/conf/petscvariables"
+    if [[ ! -f "$conf" ]]; then
+        echo "launch_coupled_mpi :: Warning: $conf not found: the MPI that PETSc was built with is not checked" >&2
+        return 0
+    fi
+    dirs="$(sed -n 's/^MPICC_SHOW *= *//p' "$conf" | tr ' ' '\n' | sed -n 's/^-I//p')"
+    dirs+=$'\n'"$(dirname -- "$(dirname -- "$lib")")/include"
+    while read -r d; do
+        h="$d/mpi.h"
+        [[ -n "$d" && -f "$h" ]] || continue
+        major="$(sed -n 's/^#define OMPI_MAJOR_VERSION \([0-9]*\).*/\1/p' "$h")"
+        if [[ -n "$major" ]]; then
+            minor="$(sed -n 's/^#define OMPI_MINOR_VERSION \([0-9]*\).*/\1/p' "$h")"
+            release="$(sed -n 's/^#define OMPI_RELEASE_VERSION \([0-9]*\).*/\1/p' "$h")"
+            echo "Open MPI $major.$minor.$release"
+            return 0
+        fi
+        version="$(sed -n 's/^#define MPICH_VERSION "\([^"]*\)".*/\1/p' "$h")"
+        if [[ -n "$version" ]]; then
+            echo "MPICH $version"
+            return 0
+        fi
+    done <<< "$dirs"
+    echo "launch_coupled_mpi :: Warning: the mpi.h of the MPI that PETSc was built with was not found (see MPICC_SHOW in" \
+         "$conf): it is not checked" >&2
+}
+
 check_mpi_versions() {
-    local out exe label built runs libs
+    local out exe label built runs petsc module
 
     # 1) launcher
     out="$(run_limited "$MPIRUN" --version 2>&1 || true)"
@@ -165,11 +241,14 @@ check_mpi_versions() {
         fi
         add_mpi_entry "$label (built with)" "$built"
         add_mpi_entry "$label (runs with)" "$runs"
-
-        # more than one MPI library linked, e.g. PETSc built with another MPI than main0d
-        libs="$( (ldd "$exe" 2> /dev/null || true) | awk '$1 ~ /^lib(mpi|mpich)\.so/ {print $1}' | sort -u)"
-        if [[ $(grep -c . <<< "$libs") -gt 1 ]]; then
-            mpi_check_error "$exe is linked to more than one MPI library:"$'\n'"$libs"
+        # the MPI library file(s) it loads (more than one: e.g. PETSc built with another MPI than main0d)
+        add_mpi_library_files "$label" "$exe"
+        # the MPI that PETSc was built with, for a 0d solver built with PETSc
+        if [[ "$label" == "0d solver" ]]; then
+            petsc="$(petsc_mpi_version "$exe")"
+            if [[ -n "$petsc" ]]; then
+                add_mpi_entry "0d solver: PETSc (built with)" "$petsc"
+            fi
         fi
     done
 
@@ -181,12 +260,36 @@ mpi4py.rc.finalize = False
 from mpi4py import MPI
 version = MPI.Get_library_version().replace("\0", "").strip()  # may end with a null character
 print("runs with: " + version.splitlines()[0])
+print("module: " + MPI.__file__)
 ' 2>&1 || true)"
     runs="$(sed -n 's/^runs with: //p' <<< "$out")"
     if [[ -z "$runs" ]]; then
         mpi_check_error "could not get the MPI version of mpi4py in $PYTHON:"$'\n'"$out"
     fi
     add_mpi_entry "1d solver (mpi4py)" "$runs"
+    # the MPI library file loaded by mpi4py (through its compiled MPI module)
+    module="$(sed -n 's/^module: //p' <<< "$out")"
+    if [[ -n "$module" && -f "$module" ]]; then
+        add_mpi_library_files "1d solver (mpi4py)" "$module"
+    fi
+
+    # all the programs must load the same MPI library file
+    local j files_mismatch=0
+    for j in "${!MPI_LIB_NAMES[@]}"; do
+        [[ "${MPI_LIB_FILES[$j]}" == "${MPI_LIB_FILES[0]}" ]] || files_mismatch=1
+    done
+    if [[ $files_mismatch -ne 0 ]]; then
+        {
+            echo "launch_coupled_mpi :: Error: the programs do not all load the same MPI library file:"
+            for j in "${!MPI_LIB_NAMES[@]}"; do
+                printf "    %-30s %s\n" "${MPI_LIB_NAMES[$j]}" "${MPI_LIB_FILES[$j]}"
+            done
+            echo "  Different installations of an MPI (even of the same version) must not be mixed in one job: load the"
+            echo "  same MPI for all of them (e.g. the same 'module load'), rebuild the coupler and main0d, and use a"
+            echo "  Python whose mpi4py is built with that MPI."
+        } >&2
+        mpi_check_error "MPI library mismatch"
+    fi
 
     # compare
     local i ref mismatch=0
@@ -198,13 +301,13 @@ print("runs with: " + version.splitlines()[0])
     if [[ $mismatch -eq 0 ]]; then
         echo "launch_coupled_mpi :: MPI check passed, all programs use $ref:"
         for i in "${!MPI_NAMES[@]}"; do
-            printf "    %-22s %s\n" "${MPI_NAMES[$i]}" "$(mpi_id "${MPI_TEXTS[$i]}")"
+            printf "    %-30s %s\n" "${MPI_NAMES[$i]}" "$(mpi_id "${MPI_TEXTS[$i]}")"
         done
     else
         {
             echo "launch_coupled_mpi :: Error: the programs do not all use the same MPI:"
             for i in "${!MPI_NAMES[@]}"; do
-                printf "    %-22s %-18s [%s]\n" "${MPI_NAMES[$i]}" "$(mpi_id "${MPI_TEXTS[$i]}")" "${MPI_TEXTS[$i]%%$'\n'*}"
+                printf "    %-30s %-18s [%s]\n" "${MPI_NAMES[$i]}" "$(mpi_id "${MPI_TEXTS[$i]}")" "${MPI_TEXTS[$i]%%$'\n'*}"
             done
             echo "    mpirun     : $(command -v "$MPIRUN" || echo "$MPIRUN")"
             echo "    coupler    : $COUPLER"
