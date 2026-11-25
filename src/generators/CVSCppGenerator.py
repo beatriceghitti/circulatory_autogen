@@ -229,8 +229,8 @@ def check_variables_use_no_rates(lines, variable_names, state_names):
     The cpp solvers compute all the variables before the rates (computeRates() calls computeVariables() first), and
     the outputs with the rates array of the 0d model, which CVODE and PETSc do not update. A variable computed from a
     derivative (d(x)/dt in its equation, rates[k] in libCellML's code) would then take the rates of the previous
-    evaluation, and give wrong results without any error. No module of the repository has such a variable: stop the
-    generation with an error naming them, and the variables computed from them.
+    evaluation, and give wrong results without any error. Currently, no module of the repository has such a variable: 
+    stop the generation with an error naming them, and the variables computed from them.
 
     lines: the lines "variables[k] = ...;" computed at each evaluation of the rates (libCellML's code).
     variable_names, state_names: names of the variables and of the states, by index (for the message).
