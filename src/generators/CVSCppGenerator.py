@@ -409,6 +409,15 @@ def analyse_coupling_connections(connections, lines_after, depends_on, variable_
     code = ""
     plans = []
     errors = []
+    # The received variables are set by the exchange, not computed by the 0d model: each connection needs its own, and
+    # no connection can send one of them (as its value or as its resistance), it would send back a received value.
+    received_by = {}
+    for conn in connections:
+        received_by.setdefault(conn['received'], []).append(conn['where'])
+    for k, wheres in received_by.items():
+        if len(wheres) > 1:
+            errors.append(f"{' and '.join(wheres)}: these connections receive their values in the same 0d variable, "
+                          f"{name(k)}.")
     for i, conn in enumerate(connections):
         received, sent, flow_bc, sign = conn['received'], conn['sent'], conn['flow_bc'], conn['sign']
         resistance = conn['resistance'] if flow_bc else None
@@ -416,6 +425,16 @@ def analyse_coupling_connections(connections, lines_after, depends_on, variable_
         sent_code = f"states[{sent}]" if conn['sent_is_state'] else f"variables[{sent}]"
         sent_name = 'pressure' if flow_bc else 'flow'
         resistance_code = f"variables[{resistance}]" if resistance is not None else "0.0"
+        if not conn['sent_is_state'] and sent in received_by:
+            errors.append(f"{conn['where']}: the {sent_name} sent, {name(sent)}, is the variable received by "
+                          f"{'this connection' if sent == received else ', '.join(received_by[sent])}: "
+                          "it would send back a value received from the 1d solver.")
+            continue
+        if resistance is not None and resistance in received_by:
+            errors.append(f"{conn['where']}: the resistance {name(resistance)} of the FV_resistance_port is the variable "
+                          f"received by {', '.join(received_by[resistance])}: it would send back a value received "
+                          "from the 1d solver.")
+            continue
         if resistance is not None and resistance in depends_on:
             errors.append(f"{conn['where']}: the resistance {name(resistance)} of the FV_resistance_port depends on "
                           f"the received {', '.join(name(k) for k in sorted(depends_on[resistance]))}.")
@@ -511,9 +530,12 @@ class CVS0DCppGenerator(object):
                  pre_time=None, sim_time=None, T0=None, petsc_solver=None,
                  couple_to_1d=False, cpp_generated_models_dir=None,
                  model_1d_config_path=None, create_main_0d=False,
-                 conn_1d_0d_info=None, DEBUG=False):
+                 conn_1d_0d_info=None, results_dir=None, DEBUG=False):
         '''
         Constructor
+        results_dir: folder of the results of the cpp models (cpp_results_dir in the user inputs): the results of this
+            model are saved in <results_dir>/<file_prefix>/. By default, simulation_outputs_cpp next to the generated
+            models folder (the parent folder of generated_model_subdir).
         '''
         if LIBCELLML_available == False:
             print("CVS0DCppGenerator __init__ :: ERROR: LibCellML is not available, cannot generate Cpp files.")
@@ -574,6 +596,13 @@ class CVS0DCppGenerator(object):
         if not os.path.exists(self.cpp_generated_models_dir):
             # os.mkdir(self.cpp_generated_models_dir)
             os.makedirs(self.cpp_generated_models_dir, exist_ok=True)
+
+        # results folder of this model, <results_dir>/<file_prefix>/ (absolute: written into the generated main, which is
+        # run from other folders), the same for fully 0d and coupled models
+        if results_dir is None:
+            results_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(self.generated_model_subdir))),
+                                       'simulation_outputs_cpp')
+        self.results_dir = os.path.join(os.path.abspath(results_dir), self.file_prefix)
         
         self.solver = solver
         # PETSc time integration scheme (with the PETSc ODE solver), see get_petsc_solver()
@@ -3025,12 +3054,20 @@ void Model0d::getExternalVariables(double voiLoc, double dtLoc, double *statesLo
         }
 """
             for i, (conn, plan) in enumerate(zip(coupling_connections, coupling_plans)):
-                if plan['affine']:
-                    # P0D and R computed from the linear dependence of the sent value on the received one
+                # values sent to the 1d solver (computeCouplingSentValues()), checked for every connection: a pressure
+                # P0D and a resistance R (flow bc, or pressure bc exchanged as a flow bc), or a flow (pressure bc, R = 0)
+                if conn['flow_bc'] or plan['converted']:
                     computeEV += f"""        if (!std::isfinite(couplingSend[{2*i}]) || !std::isfinite(couplingSend[{2*i+1}]) || couplingSend[{2*i+1}] < 0.0) {{
-            std::cerr << "0d solver :: ERROR: 1d-0d connection {conn['key']}: the values sent to the 1d solver, pressure "
+            std::cerr << "0d solver :: ERROR: {conn['where']}: the values sent to the 1d solver, pressure "
                       << couplingSend[{2*i}] << " and resistance " << couplingSend[{2*i+1}] << ", at time " << voiLoc
                       << ", must be finite, with a non-negative resistance. Exiting." << std::endl;
+            exit(1);
+        }}
+"""
+                else:
+                    computeEV += f"""        if (!std::isfinite(couplingSend[{2*i}])) {{
+            std::cerr << "0d solver :: ERROR: {conn['where']}: the flow sent to the 1d solver, " << couplingSend[{2*i}]
+                      << ", at time " << voiLoc << ", is not finite. Exiting." << std::endl;
             exit(1);
         }}
 """
@@ -4066,7 +4103,7 @@ int main(int argc, char* argv[]){
 
     Model0d model0d_inst;
     model0d_inst.set_ode_solver(ODEsolver);
-    std::string resFold = \"./simulation_outputs_cpp/\";
+    std::string resFold = \"{self.results_dir}/\"; // results folder, set at generation (cpp_results_dir of the user inputs)
     model0d_inst.openOutputFiles(resFold);
     model0d_inst.voi = 0.0;
     model0d_inst.dt = dt;
@@ -4178,6 +4215,7 @@ int main(int argc, char* argv[]){
             # if self.create_main:
             if (self.create_main and not self.couple_to_1d):
                 f.write(mainScript)
+                os.makedirs(self.results_dir, exist_ok=True) # results folder written in the main (see __init__)
         
         
         #XXX MAIN SCRIPT FILE (for coupled models only)
@@ -4205,17 +4243,10 @@ int main(int argc, char* argv[]){
                         line = line.replace('// ', '')
 
                 if 'std::string resFold =' in line:
-                    model_name = self.file_prefix # results in simulation_outputs_cpp/<file_prefix>/
-                    # results0d_folder = os.path.join(self.cpp_generated_models_dir+"/../..", f"simulation_outputs_cpp/{model_name}/")
-                    results0d_folder = os.path.join(self.cpp_generated_models_dir+"/../..", f"simulation_outputs_cpp/")
-                    if not os.path.exists(results0d_folder):
-                        os.makedirs(results0d_folder)
-                    results0d_folder = os.path.join(results0d_folder, f"{model_name}/")
-                    # if not os.path.exists(results0d_folder):
-                    #     os.makedirs(results0d_folder)
-                    
+                    # results in <results_dir>/<file_prefix>/ (see __init__), as for a fully 0d model
+                    os.makedirs(self.results_dir, exist_ok=True)
                     results0d_folder_tmp = "./"
-                    line = line.replace(f"std::string resFold = \"{results0d_folder_tmp}\";", f"std::string resFold = \"{results0d_folder}\";")
+                    line = line.replace(f"std::string resFold = \"{results0d_folder_tmp}\";", f"std::string resFold = \"{self.results_dir}/\";")
                 
                 if 'const double dtSample = ' in line:
                     idx0 = line.find("=")
