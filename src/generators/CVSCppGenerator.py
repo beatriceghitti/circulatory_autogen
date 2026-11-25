@@ -161,6 +161,31 @@ def get_petsc_solver(petsc_solver, couple_to_1d):
         exit(1)
     return petsc_solver
 
+# Functions of the generated code whose parameters are the same for every model, but whose body does not always use all
+# of them (e.g. getExternalVariablesVolume() in a model without global connection, or TSRHSfunc(), which does not need
+# the TS): their parameters are marked [[maybe_unused]] in their definition, so that -Wextra does not warn about them.
+MAYBE_UNUSED_PARAMETERS_FUNCTIONS = ('Model0d::initialiseVariables', 'Model0d::computeComputedConstants',
+                                     'Model0d::computeNonExternalVariables', 'Model0d::computeCouplingDependentVariables',
+                                     'Model0d::computeCouplingSentValues', 'Model0d::getDelayVariables',
+                                     'Model0d::getExternalVariables', 'Model0d::getExternalVariablesVolume', 'TSRHSfunc')
+
+def mark_parameters_maybe_unused(cc_path):
+    '''
+    Marks [[maybe_unused]] the parameters of the definitions of MAYBE_UNUSED_PARAMETERS_FUNCTIONS in the generated file
+    cc_path (their definitions are on one line, e.g. "void Model0d::getExternalVariablesVolume(double *varLoc)").
+    '''
+    with open(cc_path) as f:
+        lines = f.read().split('\n')
+    for iL, line in enumerate(lines):
+        for name in MAYBE_UNUSED_PARAMETERS_FUNCTIONS:
+            match = re.match(r'^(\w[\w\s\*]*\s+' + re.escape(name) + r'\()(.*)(\)\s*\{?\s*)$', line)
+            if match and match.group(2).strip():
+                parameters = [p.strip() for p in match.group(2).split(',')]
+                parameters = [p if p.startswith('[[maybe_unused]]') else '[[maybe_unused]] ' + p for p in parameters]
+                lines[iL] = match.group(1) + ', '.join(parameters) + match.group(3)
+    with open(cc_path, 'w') as f:
+        f.write('\n'.join(lines))
+
 def global_coupling_connections(conn_1d_0d_info):
     '''
     Global 1d-0d connections of a coupled model (connections with the whole 1d model, vess1d_idx = -1, e.g. the volume
@@ -2018,12 +2043,10 @@ public:
     double voi;
     double voiEnd;
     double dt;
-    double eps;
     double tolTime;
     double * states;
     double * rates;
     double * variables;
-    double time_dof_0d;
         """
 
         delayHistoriesMember = """
@@ -2035,7 +2058,6 @@ public:
     int N1d0d;
     int N1d0dTot;
     int N1d0dGlobal; // global connections (e.g. volume sum), after the one-to-one ones: rows of the TAG_VOL messages
-    std::map<std::string, std::map<std::string, int>> pipe_1d_0d_info;
             """
 
         if self.solver == 'CVODE':
@@ -2119,10 +2141,6 @@ public:
 #include <vector>
 #include <cmath>
 #include <iomanip>
-#include <thread>
-#include <poll.h>
-#include <unistd.h>
-#include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <errno.h>
@@ -2196,29 +2214,36 @@ Model0d::Model0d() :
         """
         postClassInit = ''
 
-        classInit += f"""
+        # Members initialised by the constructor, in the order of their declaration in the class (otherwise -Wreorder):
+        # they follow STATE_COUNT and VARIABLE_COUNT, which come from libCellML's code below.
+        memberInits = f"""
+    initStatesPath(nullptr),
+    initVarsPath(nullptr),
+    solver_0d(""),
     voi(0.0),
     voiEnd(0.0),
     dt(0.0),
-    eps(1e-08),
     tolTime({tol_time_cpp}),
     states(nullptr),
     rates(nullptr),
-    variables(nullptr),
-    time_dof_0d(-1),
-    solver_0d(""),
+    variables(nullptr),"""
 
-    initStatesPath(nullptr),
-    initVarsPath(nullptr),
-        """
+        if self.couple_to_1d:
+            N1d0dTot = len(self.conn_1d_0d_info)
+            global_conns = global_coupling_connections(self.conn_1d_0d_info)
+            N1d0dGlobal = len(global_conns)
+            N1d0d = N1d0dTot - N1d0dGlobal
+            memberInits += f"""
+    N1d0d({N1d0d}),
+    N1d0dTot({N1d0dTot}),
+    N1d0dGlobal({N1d0dGlobal}),"""
 
         if self.solver == 'CVODE':
-            classInit += """    
+            memberInits += """
     states0(nullptr),
-    userData(nullptr),
-        """
+    userData(nullptr),"""
         elif self.solver == 'PETSC':
-            classInit += """    
+            memberInits += """
     ts(nullptr),
     y(nullptr),
     rates_vec(nullptr),
@@ -2226,30 +2251,15 @@ Model0d::Model0d() :
     snes(nullptr),
     ksp(nullptr),
     pc(nullptr),
-    userData(nullptr),
-        """
+    userData(nullptr),"""
         else: # elif self.solver == 'RK4':
-            classInit += """    
+            memberInits += """
     states0(nullptr),
     k1(nullptr),
     k2(nullptr),
     k3(nullptr),
-    k4(nullptr),
-        """
-            
-        if self.couple_to_1d:
-            # classInit += """    model1d_ptr(nullptr),
-            N1d0dTot = len(self.conn_1d_0d_info)
-            # one-to-one connections first, then the global connections (see "Global connections" in coupler_mpi_common.h)
-            global_conns = global_coupling_connections(self.conn_1d_0d_info)
-            N1d0dGlobal = len(global_conns)
-            N1d0d = N1d0dTot - N1d0dGlobal
-
-            classInit += f"""
-    N1d0d({N1d0d}),
-    N1d0dTot({N1d0dTot}),
-    N1d0dGlobal({N1d0dGlobal}),
-        """
+    k4(nullptr),"""
+        memberInits = memberInits.rstrip(',') # the last one is followed by the body of the constructor
     #     else:
     #         N1d0d = 0
     #         N1d0dTot = 0
@@ -2258,33 +2268,6 @@ Model0d::Model0d() :
     # N1d0dTot({N1d0dTot}),
     #     """
            
-        # create mapping between external variable index and 1D vessel and BC information
-        if self.couple_to_1d:
-            classInit += """
-    pipe_1d_0d_info{
-    """
-            for iC in range (N1d0dTot):
-                conn1d0d = self.conn_1d_0d_info[str(iC+1)]
-                port_volume_sum = -1
-                if "port_volume_sum" in conn1d0d:
-                    port_volume_sum = conn1d0d["port_volume_sum"]
-                classInit += f"""       {{ "{str(iC+1)}", {{ 
-                    {{ "vess1d_idx", {conn1d0d["vess1d_idx"]} }}, 
-                    {{ "vess1d_bc_in0_or_out1", {conn1d0d["vess1d_bc_in0_or_out1"]} }}, 
-                    {{ "cellml_idx", {conn1d0d["cellml_idx"]} }}, 
-                    {{ "cellml_bc_in0_or_out1", {conn1d0d["cellml_bc_in0_or_out1"]} }}, 
-                    {{ "cellml_bc_flow0_or_press1", {conn1d0d["cellml_bc_flow0_or_press1"]} }}, 
-                    {{ "port_idx", {conn1d0d["port_idx"]} }}, 
-                    {{ "port_flow0_or_press1", {conn1d0d["port_flow0_or_press1"]} }},
-                    {{ "port_state0_or_var1", {conn1d0d["port_state0_or_var1"]} }},
-                    {{ "R_T_variable_idx", {conn1d0d["R_T_variable_idx"]} }},
-                    {{ "port_volume_sum", {port_volume_sum} }}
-                }} }}"""
-                if iC<N1d0dTot-1:
-                    classInit += ",\n"
-                else:
-                    classInit += "\n"
-            classInit += "    },\n"
 
             # classInit += """    cellml_index_to_vessel1d_info{
             # """
@@ -2390,8 +2373,9 @@ Model0d::Model0d() :
                     line = line.replace('const size_t STATE_COUNT = ', 'STATE_COUNT(')
                     line = line.replace(';', '),')
                 if 'const size_t VARIABLE_COUNT' in line:
+                    # STATE_COUNT and VARIABLE_COUNT are declared first in the class: the other members follow them
                     line = line.replace('const size_t VARIABLE_COUNT = ', 'VARIABLE_COUNT(')
-                    line = line.replace(';', ') {')
+                    line = line.replace(';', '),' + memberInits + ' {')
                 classInit += '    ' + line + '\n'
             else:
                 # print(iL, line)
@@ -3336,7 +3320,9 @@ void Model0d::initialiseVariablesAndComputeConstants() {
                 "    // in a coupled model, nothing")
         if self.solver == 'CVODE':
             externalInteractionFunctions += """
-    // reinitialise the CVODE solver with the initialised state variables 
+    // reinitialise the CVODE solver with the initialised state variables (y wraps the states array without owning it:
+    // the vector made in set_ode_solver() is destroyed first, otherwise it would leak)
+    N_VDestroy_Serial(y);
     y = N_VMake_Serial(STATE_COUNT, states, context);
     CVodeReInit(solver, voi, y);
         """
@@ -3423,7 +3409,6 @@ void Model0d::solveOneStep(double dtLoc)
             solveOneStepFunction += """
     voiEnd = voi + dt;
     voiEnd = roundTime(voiEnd);
-    time_dof_0d = 0;
 
     states = N_VGetArrayPointer_Serial(y);
 
@@ -3445,28 +3430,22 @@ void Model0d::solveOneStep(double dtLoc)
         // CVode succeeded and found one or more roots.
         std::cout << "CVODE :: Root found with flag " << flag << std::endl;
     }
-    else if (flag==99){ // CV_ROOT_RETURN
+    else if (flag==99){ // CV_WARNING
         // CVode succeeded but an unusual situation occurred.
         std::cout << "CVODE :: WARNING :: Unusual situation occurred with flag " << flag << ". CHECK YOUR OUTPUTS." << std::endl;
     }
 
     states = N_VGetArrayPointer_Serial(y);
-    time_dof_0d = -1;
 """
             if self.couple_to_1d:
                 solveOneStepFunction += """
     if (N1d0dTot>0){
+        // end of the global time step: the coupler checks the time reached and relays it to the 1d solver, which echoes it
+        // (dt keeps the time step agreed at the start of the step, the one taken)
         zero_data_dt[0] = voi; // time reached at the end of the step, checked by the coupler
         zero_data_dt[1] = COUPLING_END_OF_STEP; // signal to coupler that time step is done
         MPI_Send(zero_data_dt.data(), DATA_LENGTH, MPI_DOUBLE, coupler_rank, TAG_DT, MPI_COMM_WORLD);
-        zero_data_dt[1] = dtLoc; // reset value
-    }
-
-    if (N1d0dTot>0){ // TODO ???
         MPI_Recv(parent_data_dt.data(), DATA_LENGTH, MPI_DOUBLE, coupler_rank, TAG_DT, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        dt = parent_data_dt[1];
-        // std::cout << \"0d solver :: Received negative 0d internal time step dtLoc \" << dt << std::endl;
-        dt = dtLoc; // reset value
     }
 """
             solveOneStepFunction += """
@@ -3483,7 +3462,6 @@ void Model0d::solveOneStep(double dtLoc)
             solveOneStepFunction += """
     voiEnd = voi + dt;
     // voiEnd = std::round(voiEnd / tolTime) * tolTime;
-    time_dof_0d = 0;
 
     // PETSC_CHECK: a failed call stops the program (see its definition)
     PETSC_CHECK(TSSetTime(ts, voi)); // start from voi (rounded, or the agreed time in a coupled run)
@@ -3517,23 +3495,17 @@ void Model0d::solveOneStep(double dtLoc)
     std::copy(y_arr, y_arr + STATE_COUNT, states);
     PETSC_CHECK(VecRestoreArrayRead(y, &y_arr));
 
-    time_dof_0d = -1;
 """
 
             if self.couple_to_1d:
                 solveOneStepFunction += """
     if (N1d0dTot>0){
+        // end of the global time step: the coupler checks the time reached and relays it to the 1d solver, which echoes it
+        // (dt keeps the time step agreed at the start of the step, the one taken)
         zero_data_dt[0] = voi; // time reached at the end of the step, checked by the coupler
         zero_data_dt[1] = COUPLING_END_OF_STEP; // signal to coupler that time step is done
         MPI_Send(zero_data_dt.data(), DATA_LENGTH, MPI_DOUBLE, coupler_rank, TAG_DT, MPI_COMM_WORLD);
-        zero_data_dt[1] = dtLoc; // reset value
-    }
-
-    if (N1d0dTot>0){ // TODO ???
         MPI_Recv(parent_data_dt.data(), DATA_LENGTH, MPI_DOUBLE, coupler_rank, TAG_DT, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        dt = parent_data_dt[1];
-        // std::cout << \"0d solver :: Received negative 0d internal time step dtLoc \" << dt << std::endl;
-        dt = dtLoc; // reset value
     }
 """
             solveOneStepFunction += """
@@ -3549,7 +3521,6 @@ void Model0d::solveOneStep(double dtLoc)
 
         else:
             solveOneStepFunction += """
-    time_dof_0d = 0;
     if (solver_0d == \"explEul\") {
         // Step 1
         for (size_t i = 0; i < STATE_COUNT; ++i) {
@@ -3560,7 +3531,6 @@ void Model0d::solveOneStep(double dtLoc)
             rates[i] = k1[i];
             states[i] = states0[i] + dt*rates[i];
         }
-        time_dof_0d = -1;  
         // //computeVariables(voi+dt, states, rates, variables);
         // getExternalVariablesVolume(variables);
         // computeNonExternalVariables(voi+dt, states, rates, variables);
@@ -3583,7 +3553,6 @@ void Model0d::solveOneStep(double dtLoc)
             rates[i] = 0.5*(k1[i] + k2[i]);
             states[i] = states0[i] + dt*rates[i];
         }
-        time_dof_0d = -1;
         // // computeVariables(voi+dt, states, rates, variables);
         // getExternalVariablesVolume(variables);
         // computeNonExternalVariables(voi+dt, states, rates, variables);
@@ -3605,7 +3574,6 @@ void Model0d::solveOneStep(double dtLoc)
         for (size_t i = 0; i < STATE_COUNT; ++i) {
             states[i] = states0[i] + dt*k2[i];
         }
-        time_dof_0d = -1;
         // // computeVariables(voi+dt, states, k2, variables);
         // getExternalVariablesVolume(variables);
         // computeNonExternalVariables(voi+dt, states, k2, variables);
@@ -3642,7 +3610,6 @@ void Model0d::solveOneStep(double dtLoc)
             rates[i] = wRK4[0]*k1[i] + wRK4[1]*k2[i] + wRK4[2]*k3[i] + wRK4[3]*k4[i];
             states[i] = states0[i] + dt*rates[i];
         }
-        time_dof_0d = -1;
         // // computeVariables(voi+dt, states, rates, variables);
         // getExternalVariablesVolume(variables);
         // computeNonExternalVariables(voi+dt, states, rates, variables);
@@ -3677,17 +3644,12 @@ void Model0d::solveOneStep(double dtLoc)
             if self.couple_to_1d:
                 solveOneStepFunction += """
     if (N1d0dTot>0){
+        // end of the global time step: the coupler checks the time reached and relays it to the 1d solver, which echoes it
+        // (dt keeps the time step agreed at the start of the step, the one taken)
         zero_data_dt[0] = voi; // time reached at the end of the step, checked by the coupler
         zero_data_dt[1] = COUPLING_END_OF_STEP; // signal to coupler that time step is done
         MPI_Send(zero_data_dt.data(), DATA_LENGTH, MPI_DOUBLE, coupler_rank, TAG_DT, MPI_COMM_WORLD);
-        zero_data_dt[1] = dtLoc; // reset value
-    }
-
-    if (N1d0dTot>0){ // TODO ???
         MPI_Recv(parent_data_dt.data(), DATA_LENGTH, MPI_DOUBLE, coupler_rank, TAG_DT, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        dt = parent_data_dt[1];
-        // std::cout << \"0d solver :: Received negative 0d internal time step dtLoc \" << dt << std::endl;
-        dt = dtLoc; // reset value
     }
 """
 
@@ -3893,14 +3855,11 @@ int func(double voi_, N_Vector y, N_Vector yDot, void *userData)
     UserOdeData *realUserData = static_cast<UserOdeData*>(userData);
     sunrealtype t_solver;
     sunrealtype hcur;
-    sunrealtype hlast;
     long int nst;
     sunrealtype dtLoc;
-    double tolTime = {tol_time_cpp};
 
     CVodeGetCurrentTime(realUserData->cvodeMem(), &t_solver);
     CVodeGetCurrentStep(realUserData->cvodeMem(), &hcur); // current internal time step
-    // CVodeGetLastStep(realUserData->cvodeMem(), &hlast); // last time step taken
     CVodeGetNumSteps(realUserData->cvodeMem(), &nst); // total internal steps so far
 
     if (nst == realUserData->nstOld){{
@@ -4216,6 +4175,7 @@ int main(int argc, char* argv[]){
             if (self.create_main and not self.couple_to_1d):
                 f.write(mainScript)
                 os.makedirs(self.results_dir, exist_ok=True) # results folder written in the main (see __init__)
+        mark_parameters_maybe_unused(os.path.join(self.cpp_generated_models_dir, f'{self.output_cpp_file_name}.cc'))
         
         
         #XXX MAIN SCRIPT FILE (for coupled models only)

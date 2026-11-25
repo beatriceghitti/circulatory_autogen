@@ -6,12 +6,6 @@
 #include <vector>
 #include <cmath>
 #include <iomanip>
-#include <chrono>
-#include <random>
-#include <thread>
-#include <poll.h>
-#include <unistd.h>
-#include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <errno.h>
@@ -170,9 +164,7 @@ int main(int argc, char* argv[]) {
     bool run_0d = true;
     int it = 0;
     double time;
-    double dt;
     time = tIni;
-    dt = dt0D;
     
     // t = 0 output row (pre_time = 0): the initial conditions, as the 1d solver. In a coupled run, it is written before
     // any exchange with the 1d solver, so the values received from it are 0 in this row.
@@ -186,8 +178,7 @@ int main(int argc, char* argv[]) {
     // enter time loop.
     while (run_0d==true) {
         try {
-            model0d->solveOneStep(dt0D);
-            dt = model0d->dt;
+            model0d->solveOneStep(dt0D); // proposed time step: the coupler agrees it with the 1d solver
 
             it++;
             time = model0d->voi; // time already rounded within model0d->solveOneStepCVODE() / model0d->solveOneStepExpl() function
