@@ -3518,6 +3518,23 @@ void Model0d::solveOneStep(double dtLoc)
         std::cout << \"Model0d::solveOneStep :: explicit ODE solver not defined \" << solver_0d << std::endl;
         exit(1);
     }
+"""
+            # explicit schemes: stop at the first state that is not finite after the step (CVODE and PETSc detect a
+            # failing solution themselves); in a coupled model, the values received from the 1d solver are a possible
+            # cause too
+            received_hint = (" << \" (or check the values received from the 1d solver)\"" if self.couple_to_1d else "")
+            solveOneStepFunction += """
+    // Stop if the step gave a state that is not finite (inf or NaN), e.g. with a time step too large for the fastest
+    // dynamics of the model, instead of continuing and writing NaN results
+    for (size_t i = 0; i < STATE_COUNT; ++i) {
+        if (!std::isfinite(states[i])) {
+            std::cerr << \"0d solver :: ERROR: the \" << solver_0d << \" solution is not finite at t = \" << roundTime(voi+dt)
+                      << \" s: state \" << STATE_INFO[i].component << \"/\" << STATE_INFO[i].name << \" = \" << states[i]
+                      << \". The solver time step (\" << dt << \" s) is probably too large for this model: use a smaller \"
+                      << \"MaximumStep in solver_info, or the CVODE or PETSc solver\"""" + received_hint + """ << std::endl;
+            exit(1);
+        }
+    }
 
     voi += dt;
     voi = roundTime(voi);

@@ -285,6 +285,28 @@ void Model0d::loadFromFile(const std::string& filename, double* targetArray,
 
 void Model0d::writeOutput(double voiLoc)
 {
+    // Stop, before writing the row, if a value to write is not finite (inf or NaN): states first, so that a variable
+    // reported here comes from its own equation, not from the solution.
+    for (size_t i = 0; i < idx_states_to_output.size(); ++i) {
+        const int k = idx_states_to_output[i];
+        if (!std::isfinite(states[k])) {
+            std::cerr << "0d solver :: ERROR: state " << STATE_INFO[k].component << "/" << STATE_INFO[k].name
+                      << " is not finite at t = " << voiLoc << " s (" << states[k] << "): the " << solver_0d
+                      << " solution has failed. Stopping before writing it to the output files." << std::endl;
+            exit(1);
+        }
+    }
+    for (size_t i = 0; i < idx_vars_to_output.size(); ++i) {
+        const int k = idx_vars_to_output[i];
+        if (!std::isfinite(variables[k])) {
+            std::cerr << "0d solver :: ERROR: variable " << VARIABLE_INFO[k].component << "/" << VARIABLE_INFO[k].name
+                      << " is not finite at t = " << voiLoc << " s (" << variables[k] << "), while all the states are: "
+                      << "check its equation and the parameters it uses (e.g. a division by zero, or the square root or "
+                      << "logarithm of a negative value). Stopping before writing it to the output files." << std::endl;
+            exit(1);
+        }
+    }
+
     outFileStates << std::scientific << std::setprecision(18) << voiLoc << " ";
     for (size_t i = 0; i < idx_states_to_output.size(); ++i) {
 		outFileStates << std::scientific << std::setprecision(18) << states[idx_states_to_output[i]] << " ";
