@@ -800,13 +800,15 @@ def generate1DPythonSimInitFile(df_params, vess, nodes, sim_init_file, filename_
     }
 
 
-    MAP = 90.*mmHgDyncm2 # [dyne/cm2] 
+    MAP = 90.*mmHgDyncm2 # mean arterial pressure[dyne/cm2] (initial pressure for arteries with ICtype=3)
+    CVP = 5.*mmHgDyncm2 # central venous pressure [dyne/cm2] (initial pressure for veins with ICtype=3)
     config['calibration'] = {
         'MAP': MAP,
+        'CVP': CVP,
         'useImpedance': 1
     }
-    # MAP (mean arterial pressure) = 119990.142 [dyne/cm2] ~ 90 [mmHg]: initial pressure of the arteries with ICtype 3
-    # useImpedance = 1 to use vessel characteristic impedance to split the total terminal resistance of RCR model, 0 otherwise (some R1/R2 to Rtot ratio is used instead)
+    # useImpedance=1 to use vessel characteristic impedance to split the total terminal resistance of RCR model,
+    # 0 otherwise (some R1/R2 to Rtot ratio is used instead)
 
 
     # config['new_section'] = {
