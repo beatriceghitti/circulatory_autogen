@@ -178,7 +178,14 @@ int main(int argc, char* argv[]) {
     // enter time loop.
     while (run_0d==true) {
         try {
-            model0d->solveOneStep(dt0D); // proposed time step: the coupler agrees it with the 1d solver
+            // proposed time step, shortened to reach the next output time exactly (the 1d solver does the same with its own
+            // output times): the coupler agrees it with the 1d solver, and the agreed time step is the smaller of the two,
+            // so the results of both solvers are saved on their own output time grids, also with different dtSample
+            double dtLoc = dt0D;
+            if (time+dtLoc > tEnd) {
+                dtLoc = tEnd-time;
+            }
+            model0d->solveOneStep(dtLoc);
 
             it++;
             time = model0d->voi; // time already rounded within model0d->solveOneStepCVODE() / model0d->solveOneStepExpl() function

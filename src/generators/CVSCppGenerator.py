@@ -2610,7 +2610,7 @@ void Model0d::set_ode_solver(std::string ODEsolver)
             solverInitFunction += f"""
     // Create our SUNDIALS context object.
     SUNContext_Create(SUN_COMM_NULL, &context);
-    // Create our CVODE solver.
+    // Create our CVODE solver object, using the variable-step, variable-order, implicit BDF method.
     solver = CVodeCreate(CV_BDF, context);
     // Initialise our CVODE solver.
     y = N_VMake_Serial(STATE_COUNT, states, context);
@@ -2636,7 +2636,11 @@ void Model0d::set_ode_solver(std::string ODEsolver)
     // Set our scalar relative and absolute tolerances.
     sunrealtype reltol = {REL_TOL}; // TODO get this from user_inputs.yaml too
     sunrealtype abstol = {ABS_TOL}; // TODO get this from user_inputs.yaml too
-    CVodeSStolerances(solver, reltol, abstol); 
+    CVodeSStolerances(solver, reltol, abstol);
+    // CVodeSetMaxOrd not called, so the maximum BDF order stays 5 (CVODE starts at order 1 and raises or lowers the order as it goes).
+    // CVodeSetNonlinearSolver not set, so Newton iteration is the default nonlinear solver.
+    // CVodeSetJacFn not given, so the Jacobian is approximated internally by finite differences.
+    // First step size and minimum step size: chosen by CVODE.
 """
         elif self.solver == 'PETSC':
             solverInitFunction += f"""
@@ -2690,6 +2694,11 @@ void Model0d::set_ode_solver(std::string ODEsolver)
     // REMOVED: Options for matrix-free BDF2
     // PetscOptionsSetValue(NULL, "-ts_bdf_single_jacobian", NULL);
     // PetscOptionsSetValue(NULL, "-snes_mf_operator", NULL);
+
+    // Remark: PETSc keeps the history, so the SOLVER_BDF2 build really runs BDF2 across the one-step TSSolve calls
+    // (see Model0d::solveOneStep), not BDF1. TSSolve asks for a restart only when the step counter is 0, and
+    // TSStep adds 1 to that counter after each accepted step and clears the restart flag.
+    // Nothing in the generated code sets the counter back to 0, so the flag is only ever set on the first call.
 #endif
 
     // Failed time steps: retried with shorter steps, as CVODE does. The nonlinear system of an implicit step can have
