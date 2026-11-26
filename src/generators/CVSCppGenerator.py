@@ -2636,8 +2636,8 @@ void Model0d::set_ode_solver(std::string ODEsolver)
 """
         elif self.solver == 'PETSC':
             solverInitFunction += f"""
-    // Set up PETSc TS ODE solver (fixed-step for now). Every PETSc call is checked: PETSC_CHECK stops the program
-    // if it fails.
+    // Set up PETSc TS ODE solver (fixed time steps, only shortened to retry a failed step). Every PETSc call is
+    // checked: PETSC_CHECK stops the program if it fails.
 
     // Create solution vector
     PETSC_CHECK(VecCreate(PETSC_COMM_WORLD, &y));
@@ -2686,7 +2686,20 @@ void Model0d::set_ode_solver(std::string ODEsolver)
     // REMOVED: Options for matrix-free BDF2
     // PetscOptionsSetValue(NULL, "-ts_bdf_single_jacobian", NULL);
     // PetscOptionsSetValue(NULL, "-snes_mf_operator", NULL);
-#endif 
+#endif
+
+    // Failed time steps: retried with shorter steps, as CVODE does. The nonlinear system of an implicit step can have
+    // no solution when the rates jump inside the step, e.g. when a phase variable of the heart module crosses an
+    // integer (start of a heart cycle): the Newton iterations then fail whatever the Jacobian or the tolerances.
+    // After a failed Newton solve, PETSc retries the step with a time step 4 times shorter (-ts_adapt_scale_solve_failed).
+    // By default, PETSc stops at the first failure. The number of failures is not limited, because PETSc counts them
+    // over the whole run (the counter is only reset at step 0): the limit is set per step, by TSSetMaxStepRejections.
+    PETSC_CHECK(TSSetMaxSNESFailures(ts, PETSC_UNLIMITED)); // maximum number of failed Newton solves in the whole run: no limit
+    // The program stops (DIVERGED_STEP_REJECTED) after 10 retries of the same step (smallest step ~ dt*4^-10).
+    PETSC_CHECK(TSSetMaxStepRejections(ts, 10)); // maximum number of retries of each step (PETSc default, set explicitly)
+    // The last of the shortened steps ends exactly at the end of the solver step (TSSetMaxTime in solveOneStep), so
+    // the output times and the coupling times stay exact. The default would step over it.
+    PETSC_CHECK(TSSetExactFinalTime(ts, TS_EXACTFINALTIME_MATCHSTEP)); // shorten the last step to end exactly at the final time
 
     // Tolerances: with fixed time steps, they are used by the convergence test of the Newton iterations (SNESConvergedWRMS)
     // in order: scalar absolute tolerances, vector of absolute tolerances, scalar relative tolerances, vector of relative tolerances
@@ -3467,7 +3480,8 @@ void Model0d::solveOneStep(double dtLoc)
     PETSC_CHECK(TSSetTime(ts, voi)); // start from voi (rounded, or the agreed time in a coupled run)
     PETSC_CHECK(TSSetTimeStep(ts, dt)); // set time step
     PETSC_CHECK(TSSetMaxTime(ts, voiEnd)); // set final time for the current one-step solve
-    // Take one time step of size dt: TSSolve stops when it reaches the final time set above.
+    // Take one time step of size dt: TSSolve stops when it reaches the final time set above (after shorter steps if the
+    // step had to be retried, see TSSetMaxSNESFailures in set_ode_solver()).
     // If the step fails, stop the program (as for CVODE). Returning instead would leave the time unchanged, and the
     // time loop would then repeat the same failing step forever.
     PetscErrorCode ierrSolve = TSSolve(ts, y);
