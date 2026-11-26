@@ -25,11 +25,9 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
     convR = convP/convQ # 1.0e-05 # resistance units conversion from [J s/m6] to [dyne s/cm5]
     convC = convQ/convP # 1.0e+05 # compliance units conversion from [m6/J] to [cm5/dyne]
     # convI = 1e-05 # inductance units conversion from [J s2/m6] to [dyne s2/cm5]
-
+    
     # mmHgDyncm2 = 1333.2238 # pressure units conversion from [mmHg] to [dyne/cm2] for convenience
-
-    EeRef = 4.0e5 # [J/m3]
-
+    # EeRef = 4.0e5 # [J/m3]
 
     nRow = df_vess.shape[0]
     nCol = df_vess.shape[1]
@@ -141,8 +139,10 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
                 print(f"Parameter {nameP} not found in parameters dataframe, parameter {nameP2} found instead.")
                 vess[i]['Ee'] = float(df_params.at[idxParam2[0],"value"])*convP
             elif len(idxParam2)==0:
-                print(f"Parameters {nameP} and {nameP2} both not found in parameters dataframe. Assigning default value.")
-                vess[i]['Ee'] = EeRef*convP
+                # print(f"Parameters {nameP} and {nameP2} both not found in parameters dataframe. Assigning default value.")
+                # vess[i]['Ee'] = EeRef*convP
+                print(f"Parameters {nameP} and {nameP2} both not found in parameters dataframe. Assigning -1.0 by default.")
+                vess[i]['Ee'] = -1.0 #XXX the 1D solver computes the stiffness parameter K from reference wave speed instead.
             elif len(idxParam2)>1:
                 sys.exit(f"Parameter {nameP} not found in parameters dataframe. Parameter {nameP2} found instead but with multiple matches.")
         elif len(idxParam)>1:
@@ -159,7 +159,7 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
                 print(f"Parameter {nameP} not found in parameters dataframe, parameter {nameP2} found instead.")
                 vess[i]['Km'] = float(df_params.at[idxParam2[0],"value"])*convP
             elif len(idxParam2)==0:
-                print(f"Parameters {nameP} and {nameP2} both not found in parameters dataframe. Assigning default value.")
+                print(f"Parameters {nameP} and {nameP2} both not found in parameters dataframe. Assigning 0.0 by default.")
                 vess[i]['Km'] = 0.0
             elif len(idxParam2)>1:
                 sys.exit(f"Parameter {nameP} not found in parameters dataframe. Parameter {nameP2} found instead but with multiple matches.")
@@ -171,8 +171,8 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
         if len(idxParam)==1:
             vess[i]['P0'] = float(df_params.at[idxParam[0],"value"])*convP
         elif len(idxParam)==0:
-            print(f"Parameter {nameP} not found in parameters dataframe. Assigning default value.")
-            vess[i]['P0'] = 0.0
+            print(f"Parameter {nameP} not found in parameters dataframe. Using the reference pressure of input.ini (P0 for arteries, P0V for veins).")
+            vess[i]['P0'] = np.nan #XXX the 1D solver then uses P0 (arteries) or P0V (veins) of input.ini
         elif len(idxParam)>1:
             sys.exit(f"Multiple matches for parameter {nameP} found in parameters dataframe.")
 
@@ -181,8 +181,8 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
         if len(idxParam)==1:
             vess[i]['Pext'] = float(df_params.at[idxParam[0],"value"])*convP
         elif len(idxParam)==0:
-            print(f"Parameter {nameP} not found in parameters dataframe. Assigning default value.")
-            vess[i]['Pext'] = 0.0
+            print(f"Parameter {nameP} not found in parameters dataframe. Using the external pressure Pe of input.ini.")
+            vess[i]['Pext'] = np.nan #XXX the 1D solver then uses Pe of input.ini
         elif len(idxParam)>1:
             sys.exit(f"Multiple matches for parameter {nameP} found in parameters dataframe.")
 
@@ -522,10 +522,12 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
 
     # f.write("# 0: vess ID; 1: first node; 2: second node; 3: length [cm]; 4: inlet radius [cm]; 5: outlet radius [cm]; 6: tot term resistance [dyn s/cm5]; 7: term compliance [cm5/dyn]\n")
     # f.write("# 0: vess_ID; 1: first_node; 2: second_node; 3: length [cm]; 4: inlet_radius [cm]; 5: outlet_radius [cm]; 6: tot_term_resistance [dyn s/cm5]; 7: term_compliance [cm5/dyn]; 8: wall_thickness [cm]; 9: elastic_mod [dyn/cm2]\n")
+    # vessel file of the Python 1D solver (run1DBFmodel.py), with nColV = 14 columns (nColV in input.ini): the reference
+    # and external pressures of each vessel (NaN: those of input.ini), and the arterial (1) / venous (0) type in the last column
     f.write("# 0: vess_ID; 1: first_node; 2: second_node; "
             "3: length [cm]; 4: inlet_radius [cm]; 5: outlet_radius [cm]; "
             "6: tot_term_resistance [dyn s/cm5]; 7: term_compliance [cm5/dyn]; "
-            "8: wall_thickness [cm]; 9: elastic_mod [dyn/cm2]; 10: visco_mod [dyn s/cm2]; "
+            "8: wall_thickness [cm]; 9: elastic_mod [dyn/cm2]; 10: tilt_angle [deg]; "
             "11: p_0 [dyn/cm2]; 12: p_ext [dyn/cm2]; 13: art_ven_type "
             "\n"
         )
@@ -549,11 +551,11 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
         
         f.write("%.18e " % (-1.0)) # wall thickness - not provided if directly computed by the 1D BFM solver
 
-        f.write("%.18e " % (vess[i]['Ee'])) # elastic/Young modulus - usually not provided in the vessel input file for the 1D BFM solver
-        f.write("%.18e " % (vess[i]['Km'])) # viscous coefficient - usually not provided in the vessel input file for the 1D BFM solver
+        f.write("%.18e " % (vess[i]['Ee'])) # elastic/Young modulus (used with Ee/EeV < 0 in input.ini)
+        f.write("%.18e " % (0.0)) # tilt angle relative to the horizontal (used only with gravity)
 
-        f.write("%.18e " % (vess[i]['P0'])) # reference pressure - usually not provided in the vessel input file for the 1D BFM solver
-        f.write("%.18e " % (vess[i]['Pext'])) # external pressure - usually not provided in the vessel input file for the 1D BFM solver
+        f.write("%.18e " % (vess[i]['P0'])) # reference pressure (NaN: P0/P0V of input.ini)
+        f.write("%.18e " % (vess[i]['Pext'])) # external pressure (NaN: Pe of input.ini)
 
         f.write("%.i " % (vess[i]['type']))
 
@@ -597,19 +599,18 @@ def generate1DPythonSimInitFile(df_params, vess, nodes, sim_init_file, filename_
     # print(filename_prefix)
     # print(run_folder)
     
+    # input.ini of the Python 1D solver (run1DBFmodel.py)
     params = 'constant'
     # params = 'linear'
-    nVar1D = 2
-    if params=='linear':
-        nVar1D = 5
+    nVar1D = 5 # area, flow, wall stiffness, reference area, external pressure (6 with gravity)
 
     # 'wallthickness' = 1, if vessel wall thickness to be computed; 'wallthickness' = 0, if provided in the vess file
     wallthickness = 1
     
     config['network'] = {
         'networkName': filename_prefix[:-3],
-        'geomFold': 'NA',
-        'testFold': run_folder,
+        'testFold': run_folder.rstrip('/')+'/', # run folder (with '/'), with the input files folder and the results folder
+        'inputFold': 'NA', # input files in testFold/inputFoldName/
         'inputFoldName': 'input_files',
         'vessFile': 'vess_'+filename_prefix[:-3]+'.txt',
         'nodeFile': 'nodes_'+filename_prefix[:-3]+'.txt',
@@ -620,8 +621,10 @@ def generate1DPythonSimInitFile(df_params, vess, nodes, sim_init_file, filename_
         'nNode': len(nodes),
         'nVar1D': nVar1D,
         'nVarJ': 2,
+        'nColV': 14, # columns of the vessel file (see generate1DPythonModelFiles())
         'params': params,
         'wallthickness': wallthickness,
+        'gravity': 0, # gravity is not supported in a coupled 1D-0D simulation
         'couple_to_0d': True,
         'compute_tot_volume': computeTotBV
     }
@@ -637,13 +640,15 @@ def generate1DPythonSimInitFile(df_params, vess, nodes, sim_init_file, filename_
         'tIni': 0.0,
         'tEnd': tEnd,
         'dtSample': dtSample, 
-        'tolTime': 1e-11 # 1e-10
+        'tolTime': 1e-11, # 1e-10
+        'checkPeriod': 0 # the 1D model runs from tIni to tEnd (in a coupled run, from 0 to pre_time + sim_time)
     }
     # In a coupled run, the 1d solver gets T0, pre_time and sim_time from the coupler instead (coupler_config.json,
     # written with the same values), and checks that T0 is the same as here.
     # tolTime is used only when running the 1d solver alone: in a coupled run, the 1d solver
     # uses the time tolerance of the coupler (COUPLING_TOL_TIME in src/coupler/coupler_mpi_common.h).
 
+    mmHgDyncm2 = 1333.2238 # pressure units conversion from [mmHg] to [dyne/cm2] for convenience
 
     rho = 1.040
     for i in range(df_params.shape[0]):
@@ -660,35 +665,53 @@ def generate1DPythonSimInitFile(df_params, vess, nodes, sim_init_file, filename_
         if (df_params.at[i,'variable_name']=='nu' and df_params.at[i,'units']=='dimensionless'):
             nu = float(df_params.at[i,'value'])
             break
-    EeRefA = 4.0e6 # [dyn/cm2]
-    if 'Ee' in vess[0]:
-        if vess[0]['Ee']>=0.:
-            EeRefA = float(vess[0]['Ee'])
-    P0A = 1.0e+5 # [dyn/cm2] =~ 75. mmHg # 5.0e+4 [dyn/cm2] =~ 37.5 mmHg
-    if 'P0' in vess[0]:
-        if vess[0]['P0']>=0.:
-            P0A = float(vess[0]['P0'])
+    EeRefA = 4.0e6 # [dyn/cm2] # 2.25e6 [dyn/cm2]
+    for i in range(len(vess)):
+        if 'Ee' in vess[i] and vess[i]['type']==1: # arterial vessel
+            if vess[i]['Ee']>=0.:
+                EeRefA = float(vess[i]['Ee'])
+                break
+    EeRefV = 1.0e5 # [dyn/cm2]
+    for i in range(len(vess)):
+        if 'Ee' in vess[i] and vess[i]['type']==0: # venous vessel
+            if vess[i]['Ee']>=0.:
+                EeRefV = float(vess[i]['Ee'])
+                break
+    P0A = 1.0e+5 # [dyn/cm2] ~75 [mmHg]
+    for i in range(len(vess)):
+        if 'P0' in vess[i] and vess[i]['type']==1: # arterial vessel
+            if vess[i]['P0']>=0.:
+                P0A = float(vess[i]['P0'])
+                break
+    P0V = 6666. # [dyn/cm2] ~5 [mmHg]
+    for i in range(len(vess)):
+        if 'P0' in vess[i] and vess[i]['type']==0: # venous vessel
+            if vess[i]['P0']>=0.:
+                P0V = float(vess[i]['P0'])
+                break
 
+    # Ee, EeV < 0: Young's modulus of each vessel from the vessel file (elastic_mod);
+    # P0, P0V, Pe: reference and external pressures of the vessels without their own values in the vessel file (p_0, p_ext = NaN)
     config['model'] = {
-        'mmHgDyncm2': 1333.2238,
+        'mmHgDyncm2': mmHgDyncm2,
         'rho': rho,
         'mu': mu,
         'nu': nu,
         'velProf': 2.0,
         'coriolis': 1.0,
-        'EeA': EeRefA,
+        'tubeLaw': 'alastruey', # arteries (veins always use the alastruey tube law)
+        'Ee': -1.0,
+        'm': 0.5,
+        'n': 0.0,
         'EeV': -1.0,
-        'mA': 0.5,
-        'nA': 0.0,
         'mV': 10.0,
         'nV': -1.5,
         'pries': 0,
-        'nonlinear': 1,
         'couplePtot': 0, # 1,
-        'P0A': P0A,
-        'P0V': 0.0,
+        'P0': P0A,
+        'P0V': P0V,
         'PiniA': P0A,
-        'PiniV': 0.0,
+        'PiniV': P0V,
         'Pe': 0.0,
         'Pv': 6666.0
     }
@@ -760,41 +783,29 @@ def generate1DPythonSimInitFile(df_params, vess, nodes, sim_init_file, filename_
     config['numerics'] = {
         'CFL': 0.9,
         'FVord': FVord,
-        'numFlux': 'HLLArteries',
-        'WBscheme': 1,
         'slopeType': 'ENO',
         'ODEord': ODEord,
         'ODEsolver': ODEsolver
     }
     if ODEsolver=='PETSC':
-        # the same scheme as the 0d solver, checked at start-up of a coupled simulation (see main1D.py)
+        # the same scheme as the 0d solver, checked at start-up of a coupled simulation (see run1DBFmodel.py)
         config['numerics']['PETSc_solver'] = petsc_solver
 
 
     config['results'] = {
         'outputFoldName': 'res',
         'tSaveIni': pre_time, # results saved from pre_time, as in the 0d solver
-        'tSaveEnd': -1.0, # 1000.0,
         'saveResSpace': 0,
-        'tSaveIniSpace': -1.0, # 0.0,
-        'tSaveEndSpace': -1.0 # 1000.0
+        'tSaveIniSpace': pre_time # with saveResSpace 1
     }
 
 
-    # MAP = 85.*1333.2238 # [dyne/cm2] 
-    MAP = 90.*1333.2238 # [dyne/cm2] 
+    MAP = 90.*mmHgDyncm2 # [dyne/cm2] 
     config['calibration'] = {
         'MAP': MAP,
-        'CsysA': 1.7,
-        'CsysA_units': 'ml/mmHg',
-        'CsysV': 146.0,
-        'CsysV_units': 'ml/mmHg',
-        'CO': 100.0,
         'useImpedance': 1
     }
-    # MAP (mean arterial pressure) = 113324.023 [dyne/cm2] =~ 85 [mmHg]; provided, but not really used
-    # CsysA (total systemic arterial vascular compliance) = 1.7 [mL/mmHg]; provided, but not really used
-    # CO (cardiac output) = 100.0 [ml/s]; provided, but not really used
+    # MAP (mean arterial pressure) = 119990.142 [dyne/cm2] ~ 90 [mmHg]: initial pressure of the arteries with ICtype 3
     # useImpedance = 1 to use vessel characteristic impedance to split the total terminal resistance of RCR model, 0 otherwise (some R1/R2 to Rtot ratio is used instead)
 
 
@@ -808,4 +819,3 @@ def generate1DPythonSimInitFile(df_params, vess, nodes, sim_init_file, filename_
         config.write(configfile)
     print('DONE!')
     print('****')
-

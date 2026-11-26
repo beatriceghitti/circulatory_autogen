@@ -1,6 +1,7 @@
 #!/bin/bash
 # Launch a coupled 1d-0d simulation as a single MPMD MPI job:
-#   1 rank for the coupler : 1 rank for the 0d solver (main0d) : 1 rank for the 1d solver (main1D.py)
+#   1 rank for the coupler : 1 rank for the 0d solver (main0d) : 1 rank for the 1d solver (run1DBFmodel.py, the Python
+#   1d solver of the configuration file: solver1d_path)
 #
 # The arguments of the two solvers are read from the coupler configuration file (the same file that the coupler reads).
 # At start-up, the coupler also sends its view of the coupling to both solvers (handshake),
@@ -115,6 +116,11 @@ for f in "$COUPLER" "$SOLVER0D" "$PYTHON"; do
         exit 1
     fi
 done
+# the 1d solver script (run1DBFmodel.py), run by the Python of the configuration file
+if [[ ! -f "$SOLVER1D" || ! -r "$SOLVER1D" ]]; then
+    echo "launch_coupled_mpi :: Error: 1d solver $SOLVER1D (solver1d_path in $CONFIG) not found or not readable" >&2
+    exit 1
+fi
 
 # ---------------------------------------------------------------------------------------------------
 # MPI check: all the programs must use the same MPI (implementation and version). With different
@@ -339,4 +345,5 @@ exec "$MPIRUN" "$@" \
     -np 1 "$COUPLER" "$CONFIG" \
   : -np 1 "$SOLVER0D" -coupled 1 -ODEsolver "$ODESOLVER" -T0 "$T0" -preTime "$PRETIME" -simTime "$SIMTIME" \
         -networkName "$NETWORK" -initStatePath "$INITSTATE" \
-  : -np 1 "$PYTHON" -u "$SOLVER1D" 1 "$ODESOLVER" "$T0" "$PRETIME" "$SIMTIME" "$INITFILE1D" "$INITSTATE"
+  : -np 1 "$PYTHON" -u "$SOLVER1D" --coupled --initFile "$INITFILE1D" --ODEsolver "$ODESOLVER" --T0 "$T0" \
+        --preTime "$PRETIME" --simTime "$SIMTIME" --initStatePath "$INITSTATE"

@@ -45,7 +45,8 @@ ABS_TOL = 1e-9
 def round_half_away(x):
     '''
     Round to the nearest integer, halves away from zero, as std::round in C++ (Python's round() rounds halves to
-    even: round(10.5) = 10, std::round(10.5) = 11). Same as _round_half_away() in src/solver1d/auxMPIFunctions.py.
+    even: round(10.5) = 10, std::round(10.5) = 11). Same as _round_half_away() in auxMPIFunctions.py of the Python 1d
+    solver (run1DBFmodel.py).
     '''
     a = abs(float(x))
     q = math.floor(a)  # a - q is exact in floating point
@@ -554,10 +555,12 @@ class CVS0DCppGenerator(object):
                  solver='CVODE', dtSample=1e-3, dtSolver=1e-4, nMaxSteps=5000,
                  pre_time=None, sim_time=None, T0=None, petsc_solver=None,
                  couple_to_1d=False, cpp_generated_models_dir=None,
-                 model_1d_config_path=None, create_main_0d=False,
+                 model_1d_config_path=None, solver_1d_path=None, create_main_0d=False,
                  conn_1d_0d_info=None, results_dir=None, DEBUG=False):
         '''
         Constructor
+        solver_1d_path: path of the Python 1d solver (run1DBFmodel.py, solver_1d_path in the user inputs), written into the
+            coupler configuration file of a coupled model (solver1d_path)
         results_dir: folder of the results of the cpp models (cpp_results_dir in the user inputs): the results of this
             model are saved in <results_dir>/<file_prefix>/. By default, simulation_outputs_cpp next to the generated
             models folder (the parent folder of generated_model_subdir).
@@ -599,6 +602,7 @@ class CVS0DCppGenerator(object):
         if self.couple_to_1d:
             # absolute paths: they are written into coupler_config.json and the run script, which run from other folders
             self.model_1d_config_path = os.path.abspath(model_1d_config_path) if model_1d_config_path else model_1d_config_path
+            self.solver_1d_path = os.path.abspath(solver_1d_path) if solver_1d_path else solver_1d_path
             self.create_main = create_main_0d
             # self.external_headers += ['model1d.h']
         else:
@@ -4352,7 +4356,8 @@ int main(int argc, char* argv[]){
             # coupler_config['python_path'] = '/home/bghi639/anaconda3/bin/python'
             # coupler_config['python_path'] = '/home/bghi639/Software/OpenCOR-0-8-3-Linux/python'
             coupler_config['python_path'] = opencor_root+'/python' #XXX DEFAULT OpenCOR Python
-            coupler_config['solver1d_path'] = generators_dir_path+'/../solver1d/main1D.py' #XXX THIS CAN CHANGE TO A SEPARATE REPO FOR THE 1D SOLVER
+            # Python 1d solver (run1DBFmodel.py, in its own repository): solver_1d_path of the user inputs
+            coupler_config['solver1d_path'] = self.solver_1d_path if self.solver_1d_path else ''
             coupler_config['initFile_sim1d_path'] = self.model_1d_config_path
             coupler_config['initStatePath'] = 'None'
 
@@ -4454,7 +4459,7 @@ class CVS1DPythonGenerator(object):
             json.dump({k: {kk: vv for kk, vv in conn.items() if kk != "vess1d_name"}
                        for k, conn in self.conn_1d_0d_info.items()}, f, indent=4)
 
-        # 3: update the main1D.py script (IF NEEDED)
+        # 3: the Python 1d solver (run1DBFmodel.py) is in its own repository: solver_1d_path of the user inputs
 
         print("1D Python files generated. Check they run properly.")
         

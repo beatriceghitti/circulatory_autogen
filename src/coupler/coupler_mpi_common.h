@@ -5,11 +5,12 @@
 //   - the coupler (src/coupler/coupler.cpp);
 //   - the generated 0d solver (main0d.cpp / model0d.cc), which gets a copy of this file
 //     in its generated folder (see CVSCppGenerator.py);
-//   - the Python 1d solver: src/solver1d/auxMPIFunctions.py duplicates the constants below.
+//   - the Python 1d solver (run1DBFmodel.py, in its own repository: solver1d_path of the coupler configuration file):
+//     its auxMPIFunctions.py duplicates the constants below.
 //     KEEP THEM IN SYNC.
 //
 // The three programs are started together by a single mpirun (MPMD launch), e.g.
-//   mpirun -np 1 ./coupler config.json : -np 1 ./main0d -coupled 1 ... : -np 1 python main1D.py 1 ...
+//   mpirun -np 1 ./coupler config.json : -np 1 ./main0d -coupled 1 ... : -np 1 python run1DBFmodel.py --coupled ...
 // (see src/coupler/launch_coupled_mpi.bash).
 // Every message goes through the coupler: the 0d and 1d solvers never talk to each other directly.
 

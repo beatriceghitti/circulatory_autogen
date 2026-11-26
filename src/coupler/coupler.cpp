@@ -1,12 +1,14 @@
 // coupler.cpp
 // Master coupler for coupled 1d-0d simulations: it relays the time step negotiation and the
-// coupling data between the 1d solver (Python, src/solver1d/main1D.py) and the 0d solver
+// coupling data between the 1d solver (Python, run1DBFmodel.py: solver1d_path of the coupler configuration file)
+// and the 0d solver
 // (C++, generated main0d), using MPI. Runs on exactly one rank.
 //
 // The three programs are started together by a single mpirun (MPMD launch), i.e. on one line:
 //   mpirun -np 1 ./coupler <coupler_config.json>
 //        : -np 1 <path>/main0d -coupled 1 -ODEsolver ... -T0 ... -preTime ... -simTime ... -networkName ... -initStatePath ...
-//        : -np 1 <python> <path>/main1D.py 1 <ODEsolver> <T0> <pre_time> <sim_time> <input.ini> <initStatePath>
+//        : -np 1 <python> <path>/run1DBFmodel.py --coupled --initFile <input.ini> --ODEsolver ... --T0 ... --preTime ...
+//                   --simTime ... --initStatePath ...
 // src/coupler/launch_coupled_mpi.bash builds this command from the coupler configuration file.
 //
 // Message protocol (see coupler_mpi_common.h):
@@ -135,7 +137,7 @@ public:
         if (local_size != 1 || rank0d < 0 || rank1d < 0) {
             throw std::runtime_error(
                 "Coupler1d0d::init() : the coupler needs exactly 1 coupler rank, plus the 0d and the 1d solvers in the same mpirun, e.g.\n"
-                "  mpirun -np 1 ./coupler config.json : -np 1 ./main0d -coupled 1 ... : -np 1 python main1D.py 1 ...\n"
+                "  mpirun -np 1 ./coupler config.json : -np 1 ./main0d -coupled 1 ... : -np 1 python run1DBFmodel.py --coupled ...\n"
                 "  (see src/coupler/launch_coupled_mpi.bash)");
         }
 
@@ -305,7 +307,7 @@ public:
 
         while (true) {
 
-            // this is to exchange global synchronization time and time step between main0d and main1D 
+            // this is to exchange global synchronization time and time step between main0d and the 1d solver 
             // BEFORE advancing each solver in time
             if (time_step_exchanged){
                 // Each global time step starts with a message from main0d: either its time step,
@@ -328,7 +330,7 @@ public:
                     break;
                 }
                 step++;
-                // read time step data from main0d and send it to main1D
+                // read time step data from main0d and send it to the 1d solver
                 recv(zero_buffer_dt, rank0d, TAG_DT_STEP, "the global time step");
                 const double time0d = zero_buffer_dt[0];
                 const double dt0d = zero_buffer_dt[1];
@@ -337,7 +339,7 @@ public:
                 }
                 send(zero_buffer_dt, rank1d, TAG_DT_STEP);
 
-                // read time step data from main1D, check it, and send it back to main0d
+                // read time step data from the 1d solver, check it, and send it back to main0d
                 recv(one_buffer_dt, rank1d, TAG_DT_STEP, "the global time step");
                 const double time1d = one_buffer_dt[0];
                 const double dt1d = one_buffer_dt[1];
@@ -356,7 +358,7 @@ public:
                 std::cout << std::setprecision(8) << "Coupler1d0d :: Global time exchanged : " << timeGlob << " || dt : " << dtGlob << std::endl;
             }
 
-            // this is to exchange local internal time and time step taken by the specific ODE solver between main0d and main1D
+            // this is to exchange local internal time and time step taken by the specific ODE solver between main0d and the 1d solver
             // read time step data from main0d
             recv(zero_buffer_dt, rank0d, TAG_DT, "the internal time step");
             timeLoc = zero_buffer_dt[0];
@@ -381,14 +383,14 @@ public:
                                      + num(stepEnd) + " (time " + num(timeGlob) + " + time step " + num(dtGlob) + ")");
                 }
 
-                // send time step data to main1D
+                // send time step data to the 1d solver
                 send(zero_buffer_dt, rank1d, TAG_DT);
-                // read time step data from main1D and send it back to main0d
+                // read time step data from the 1d solver and send it back to main0d
                 recv(one_buffer_dt, rank1d, TAG_DT, "the end of the global time step");
                 send(one_buffer_dt, rank0d, TAG_DT);
 
                 if (N1d0dGlobal > 0){
-                    // values of the global connections (e.g. volume sum) from main1D, sent to main0d
+                    // values of the global connections (e.g. volume sum) from the 1d solver, sent to main0d
                     recv(one_buffer_vol, rank1d, TAG_VOL, "the values of the global connections (e.g. volume sum)");
                     send(one_buffer_vol, rank0d, TAG_VOL);
                 }
@@ -415,7 +417,7 @@ public:
                 zero_buffer_dt[1] = dtLoc;
             }
 
-            // send time step data to main1D
+            // send time step data to the 1d solver
             send(zero_buffer_dt, rank1d, TAG_DT);
 
             // std::cout << std::setprecision(16)
@@ -424,12 +426,12 @@ public:
             //         << " || timeDiff " << (timeGlob+dtGlob)-timeLoc
             //         << std::endl;
 
-            // this is to exchange solution data between main0d and main1D for all 1D-0D connections (one message each way)
+            // this is to exchange solution data between main0d and the 1d solver for all 1D-0D connections (one message each way)
             if (N1d0d > 0) {
-                // read data from main0d and send it to main1D
+                // read data from main0d and send it to the 1d solver
                 recv(zero_buffer, rank0d, TAG_DATA, "the 1d-0d coupling data");
                 send(zero_buffer, rank1d, TAG_DATA);
-                // read data from main1D and send it back to main0d
+                // read data from the 1d solver and send it back to main0d
                 recv(one_buffer, rank1d, TAG_DATA, "the 1d-0d coupling data");
                 send(one_buffer, rank0d, TAG_DATA);
             }
@@ -437,7 +439,7 @@ public:
             count++;
         }
 
-        // main0d has completed the simulation: main1D must have completed it too.
+        // main0d has completed the simulation: the 1d solver must have completed it too.
         recv(one_done, rank1d, TAG_DONE, "the end of the simulation");
         if (!(std::abs(one_done[0] - zero_done[0]) <= tolTime)) {
             sync_error(step, "the 1d solver stopped at time " + num(one_done[0]) + ", the 0d solver at time " + num(zero_done[0]));

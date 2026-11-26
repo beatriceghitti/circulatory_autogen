@@ -72,7 +72,9 @@ The following are the steps for model autogeneration.
 
     For `model_type: cellml_only`, four CellML files and a CSV file are generated. The CSV file includes model parameters, and the four CellML files contain the modules, parameters, units/constants, and main model.
 
-    For `model_type: python`, a Python module is also generated alongside the CellML files. For `model_type: cpp`, C++ source files are generated and may be written to `cpp_generated_models_dir` depending on your settings. When a C++ model is run, its results are saved in `[cpp_results_dir]/[file_prefix]/`, where `cpp_results_dir` is an optional user input, by default `simulation_outputs_cpp` next to `generated_models_dir`.
+    For `model_type: python`, a Python module is also generated alongside the CellML files. 
+    
+    For `model_type: cpp`, C++ source files are generated and may be written to `cpp_generated_models_dir` depending on your settings. When a C++ model is run, its results are saved in `[cpp_results_dir]/[file_prefix]/`, where `cpp_results_dir` is an optional user input, by default `simulation_outputs_cpp` next to `generated_models_dir`. A C++ model coupled to the Python 1D solver (`couple_to_1d: True`, `solver_1d_type: py`) also needs `solver_1d_path`: the path of `run1DBFmodel.py` of the 1D solver, which is in its own repository (absolute, or relative to the user inputs file). It is written into the coupler configuration file (`solver1d_path` in `coupler_config.json`).
 
     ![Generated files](images/generated-files.png)
 

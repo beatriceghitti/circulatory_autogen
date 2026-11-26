@@ -101,6 +101,19 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
             else:
                 cpp_generated_models_dir = None
 
+            # Python 1d solver (run1DBFmodel.py, in its own repository), run by the coupled simulation: its path is
+            # written into the coupler configuration file (solver1d_path)
+            solver_1d_path = None
+            if str(inp_data_dict.get('solver_1d_type', 'py')).startswith('py'):
+                solver_1d_path = inp_data_dict.get('solver_1d_path')
+                if not solver_1d_path:
+                    sys.exit("ERROR :: solver_1d_path not found in the user input yaml file: give the path of run1DBFmodel.py "
+                             "of the Python 1D solver (absolute, or relative to the user input yaml file), needed to couple "
+                             "a 0D model to it")
+                if not os.path.isfile(solver_1d_path):
+                    sys.exit(f"ERROR :: solver_1d_path {solver_1d_path} of the user input yaml file not found: give the path "
+                             "of run1DBFmodel.py of the Python 1D solver (absolute, or relative to the user input yaml file)")
+
             if 'generate_1d' in inp_data_dict:
                 generate_1d = inp_data_dict['generate_1d']
             else:
@@ -123,6 +136,7 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
                                             couple_to_1d=inp_data_dict['couple_to_1d'],
                                             cpp_generated_models_dir=cpp_generated_models_dir,
                                             model_1d_config_path=model_1d_config_path,
+                                            solver_1d_path=solver_1d_path,
                                             create_main_0d=create_main_0d,
                                             conn_1d_0d_info=parser.conn_1d_0d_info,
                                             results_dir=inp_data_dict.get('cpp_results_dir'),

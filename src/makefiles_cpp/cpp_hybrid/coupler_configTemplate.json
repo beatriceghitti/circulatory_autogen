@@ -8,7 +8,7 @@
     "sim_time": 3.0,
     "solver0d_path": "./main0d",
     "python_path": "/home/bghi639/anaconda3/bin/python",
-    "solver1d_path": "../../src/solver1d/main1D.py",
+    "solver1d_path": "<path of run1DBFmodel.py of the Python 1d solver>",
     "initFile_sim1d_path": "../../files_1d/model_hybrid/run000/input.ini",
     "initStatePath": "None"
 }

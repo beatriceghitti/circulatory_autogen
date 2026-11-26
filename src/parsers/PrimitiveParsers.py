@@ -147,11 +147,12 @@ class YamlFileParser(object):
         else:
             inp_data_dict['generated_models_dir'] = os.path.join(root_dir, 'generated_models')
         # paths of the cpp files, of the results of a cpp model (cpp_results_dir, optional: by default simulation_outputs_cpp
-        # next to generated_models_dir, see CVS0DCppGenerator) and of the 1d input file of a cpp model (coupled to a 1d
-        # model): relative to the user inputs file, as the folders above, and absolute, as they are written into the
-        # generated run files (coupler_config.json, the run script, the main of the 0d model, input.ini), which are used
-        # from other folders
-        for path_key in ('cpp_generated_models_dir', 'cpp_results_dir', 'model_1d_config_path', 'cpp_1d_model_config_path'):
+        # next to generated_models_dir, see CVS0DCppGenerator), of the 1d input file of a cpp model (coupled to a 1d
+        # model) and of the Python 1d solver (solver_1d_path, run1DBFmodel.py): relative to the user inputs file, as the
+        # folders above, and absolute, as they are written into the generated run files (coupler_config.json, the run
+        # script, the main of the 0d model, input.ini), which are used from other folders
+        for path_key in ('cpp_generated_models_dir', 'cpp_results_dir', 'model_1d_config_path', 'cpp_1d_model_config_path',
+                         'solver_1d_path'):
             if inp_data_dict.get(path_key):
                 inp_data_dict[path_key] = os.path.abspath(os.path.join(user_files_dir, inp_data_dict[path_key]))
 
