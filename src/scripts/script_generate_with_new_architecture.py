@@ -156,7 +156,9 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
                                                         cpp_generated_models_dir=cpp_generated_models_dir,
                                                         solver=solver_cpp, dtSample=dtSample, dtSolver=dtSolver, 
                                                         pre_time=pre_time, sim_time=sim_time, T0=T0, petsc_solver=petsc_solver,
-                                                        conn_1d_0d_info=parser.conn_1d_0d_info)
+                                                        conn_1d_0d_info=parser.conn_1d_0d_info,
+                                                        inflow_func_1d=inp_data_dict.get('inflow_func_1d'),
+                                                        bc_modules_1d=parser.bc_modules_1d)
                     elif inp_data_dict['solver_1d_type'].startswith('cpp'):
                         #XXX This would use the class CVS1DCppGenerator() that Finbar was working on.
                         sys.exit('ERROR :: Class for generating Cpp files for 1D model not yet implemented. Please change your 1D solver type.')

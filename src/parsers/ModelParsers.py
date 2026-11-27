@@ -41,6 +41,7 @@ class CSV0DModelParser(object):
         self.json_parser = JSONFileParser()
 
         self.conn_1d_0d_info = None
+        self.bc_modules_1d = None
 
     @staticmethod
     def __exit_uncoupled_bc(name_0d, vessel_type_0d, BC_type_0d, vess1d, side_1d):
@@ -242,7 +243,10 @@ class CSV0DModelParser(object):
         # boundary conditions of the 1d solver. They are dropped from vessels_df_0d after the loop below (not inside it),
         # so that the rows of vessels_df_0d keep their labels 0..n-1 while new rows are appended with loc[len(...)].
         boundary_modules_to_drop = []
-        
+        # the boundary modules replaced by boundary conditions of the 1d solver, for the 1d generator (values of the
+        # boundary conditions, see generate1DPythonSimInitFile()): (1d vessel name, 'inlet'/'outlet') -> module
+        self.bc_modules_1d = {}
+
         # For now, only one-1d-to-one-0d (or multiple-1d-to-one-0d) connections are allowed and implemented
         #XXX TODO Make this more general
         names_1d = set(vessels_df_1d["name"])
@@ -293,6 +297,9 @@ class CSV0DModelParser(object):
                                     elif vessels_df_0d.at[idx0d_int,"vessel_type"].startswith("inlet_pressure"):
                                         vessels_df_1d.at[i,"inp_vessels"] = 'input_pressure_BC'
 
+                                    self.bc_modules_1d[(vessels_df_1d.at[i,"name"], 'inlet')] = {
+                                        'name': inp_vess, 'vessel_type': vessels_df_0d.at[idx0d_int,"vessel_type"],
+                                        'BC_type': vessels_df_0d.at[idx0d_int,"BC_type"]}
                                     boundary_modules_to_drop.append(inp_vess)
 
                             else:
@@ -374,6 +381,9 @@ class CSV0DModelParser(object):
                                     elif vessels_df_0d.at[idx0d_int,"vessel_type"].startswith("outlet_pressure"):
                                         vessels_df_1d.at[i,"out_vessels"] = 'output_pressure_BC'
 
+                                    self.bc_modules_1d[(vessels_df_1d.at[i,"name"], 'outlet')] = {
+                                        'name': out_vess, 'vessel_type': vessels_df_0d.at[idx0d_int,"vessel_type"],
+                                        'BC_type': vessels_df_0d.at[idx0d_int,"BC_type"]}
                                     boundary_modules_to_drop.append(out_vess)
                             
                             else:

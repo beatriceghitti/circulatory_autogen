@@ -4388,12 +4388,18 @@ class CVS1DPythonGenerator(object):
     def __init__(self, model, file_prefix, vessels1d_csv_abs_path, parameters_csv_abs_path,
                 model_1d_config_path, generated_model_subdir, cpp_generated_models_dir=None,
                 solver='CVODE', dtSample=1e-3, dtSolver=1e-4, pre_time=None, sim_time=None, T0=None,
-                petsc_solver=None, conn_1d_0d_info=None):
+                petsc_solver=None, conn_1d_0d_info=None, inflow_func_1d=None, bc_modules_1d=None):
         '''
         Constructor
         pre_time, sim_time: time window of the user inputs (see get_time_window())
         T0: cardiac period, parameter T of the model (see get_cardiac_period())
         petsc_solver: PETSc time integration scheme, the same as in the 0d solver (see get_petsc_solver())
+        inflow_func_1d: built-in inflow function of the 1D solver for the inflow BCs of the 1D network (inlet_flow
+                        module at the inlet of a 1D vessel), inflow_func_1d of the user inputs (see
+                        generate1DPythonSimInitFile())
+        bc_modules_1d: boundary modules at the 1D vessels, replaced by boundary conditions of the 1D solver
+                       (bc_modules_1d of the model parser): their values are written into input.ini (see
+                       generate1DPythonSimInitFile())
         '''
 
         self.model = model
@@ -4423,6 +4429,8 @@ class CVS1DPythonGenerator(object):
             exit(1)
         self.T0 = T0
         self.conn_1d_0d_info = conn_1d_0d_info
+        self.inflow_func_1d = inflow_func_1d
+        self.bc_modules_1d = bc_modules_1d
 
         self.generated_model_subdir = generated_model_subdir
         if cpp_generated_models_dir is None:
@@ -4456,7 +4464,8 @@ class CVS1DPythonGenerator(object):
                 if self.conn_1d_0d_info[str(i+1)]["port_volume_sum"]==1:
                     computeTotBV = True
         generate1DPythonSimInitFile(self.params_df, vess1d, nodes1d, self.initFile1d, self.file_prefix, self.run1dFold, self.ODEsolver, self.dtSample, computeTotBV,
-                                    self.T0, self.pre_time, self.sim_time, petsc_solver=self.petsc_solver)
+                                    self.T0, self.pre_time, self.sim_time, petsc_solver=self.petsc_solver,
+                                    inflow_func_1d=self.inflow_func_1d, bc_modules_1d=self.bc_modules_1d)
 
 
         if self.file_prefix.endswith("_1d"):
