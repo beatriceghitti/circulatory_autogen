@@ -593,10 +593,11 @@ def generate1DPythonSimInitFile(df_params, vess, nodes, sim_init_file, filename_
     # petsc_solver: PETSc time integration scheme with ODEsolver PETSC, the same as in the 0d solver
     #               (get_petsc_solver() in CVSCppGenerator.py)
     # inflow_func_1d: built-in inflow function of the 1D solver (inflowFunc in input.ini) for the inflow BCs (inlet_flow
-    #                 module at the inlet of a 1D vessel), from the user inputs; required if the 1D network has one
+    #                 module at the inlet of a 1D vessel), from the user inputs; required if the 1D network has a
+    #                 time-dependent one (a constant one, BC_type nn_constant, is a constant inflow Qin instead)
     # bc_modules_1d: boundary modules at the 1D vessels, (1D vessel name, 'inlet'/'outlet') -> module (name, vessel_type,
-    #                BC_type), from the model parser (ModelParsers.split_0d_1d_vessel_array()); the values of the inlet
-    #                pressure, outlet pressure and outflow BCs are their parameters
+    #                BC_type), from the model parser (ModelParsers.split_0d_1d_vessel_array()); the values of the
+    #                constant inflow, inlet pressure, outlet pressure and outflow BCs are their parameters
 
     config = ConfigParser(allow_no_value=True, delimiters=(':',)) # delimiters=('=', ':')
     config.optionxform = str  # keep keys case-sensitive
@@ -759,31 +760,64 @@ def generate1DPythonSimInitFile(df_params, vess, nodes, sim_init_file, filename_
                     idxs_vOut.append( str(vess[j]['id']) )
                     break
 
-    # inflow BCs (code 0: inlet_flow module at the inlet of a 1D vessel): the 1D solver uses one of its built-in inflow
-    # functions, inflowFunc (inflow_func_1d of the user inputs), with the cardiac period T0; it checks the name at start-up.
-    #XXX The parameters of the inlet_flow module are not used, as the equivalent inlet flow function should be available in the 1D solver.
+    # inflow BCs (code 0: inlet_flow module at the inlet of a 1D vessel). The 1D solver takes one inflow type for all its
+    # inflow BCs (inflowFunc in [BCs]):
+    # - constant inlet_flow modules (BC_type nn_constant): constant inflow (inflowFunc constant), with the constant value
+    #   of the modules, i.e. their parameter v_<module>, as Qin (see the values of the BCs below);
+    # - time-dependent inlet_flow modules (e.g. nn_fourier_8, nn_aorticbif): one of the built-in inflow functions of the
+    #   1D solver, inflow_func_1d of the user inputs, with the cardiac period T0 (the 1D solver checks the name at
+    #   start-up). If there are also constant ones, they use the same function.
+    #XXX The parameters of the time-dependent inlet_flow modules are not used, as the equivalent inlet flow function should be available in the 1D solver.
     vessInflow = [vess[j]['name'] for i in range(len(nodes)) if nodes[i]['type']==0
                   for j in range(len(vess)) if vess[j]['n1']==nodes[i]['id']]
-    if vessInflow:
+    modulesInflow = []
+    for nameV in vessInflow:
+        module = (bc_modules_1d or {}).get((nameV, 'inlet'))
+        if module is None:
+            sys.exit(f"generate1DPythonSimInitFile :: ERROR: no boundary module found at the inlet of the 1D vessel "
+                     f"{nameV}, which has an inflow BC (code 0)")
+        modulesInflow.append(module)
+    inflowConst = [module['name'] for module in modulesInflow if module['BC_type']=='nn_constant']
+    inflowTime = [f"{module['name']} (BC_type {module['BC_type']})" for module in modulesInflow
+                  if module['BC_type']!='nn_constant']
+    if inflowTime:
         if not inflow_func_1d:
-            sys.exit(f"generate1DPythonSimInitFile :: ERROR: the 1D network has an inflow BC (inlet_flow module) at the "
-                     f"inlet of the 1D vessel(s) {', '.join(vessInflow)}: give inflow_func_1d in the user inputs yaml file, "
-                     "the name of a built-in inflow function of the 1D solver (e.g. inflow_aorticbif, see "
-                     "BUILTIN_INFLOW_FUNCS in vessel.py of the 1D solver)")
+            sys.exit(f"generate1DPythonSimInitFile :: ERROR: the 1D network has a time-dependent inflow BC (inlet_flow "
+                     f"module(s) {', '.join(inflowTime)}) at the inlet of the 1D vessel(s) {', '.join(vessInflow)}: give "
+                     "inflow_func_1d in the user inputs yaml file, the name of a built-in inflow function of the 1D "
+                     "solver (e.g. inflow_aorticbif, see BUILTIN_INFLOW_FUNCS in vessel.py of the 1D solver)")
+        inflowFunc = inflow_func_1d
         print(f"generate1DPythonSimInitFile :: NOTE: inflow BC at the inlet of the 1D vessel(s) {', '.join(vessInflow)}: "
               f"the 1D solver uses its built-in inflow function {inflow_func_1d} (inflow_func_1d of the user inputs), with "
-              f"period T = {T0}; the parameters of the inlet_flow module are not used")
-    elif inflow_func_1d:
-        print(f"generate1DPythonSimInitFile :: WARNING: inflow_func_1d = {inflow_func_1d} of the user inputs is not used: "
-              "the 1D network has NO inflow BC (inlet_flow module at the inlet of a 1D vessel)")
+              f"period T = {T0}; the parameters of the inlet_flow module(s) are not used")
+        if inflowConst:
+            print(f"generate1DPythonSimInitFile :: WARNING: the 1D solver takes one inflow type for all its inflow BCs, "
+                  f"but the 1D network has both time-dependent (inlet_flow module(s) {', '.join(inflowTime)}) and constant "
+                  f"(inlet_flow module(s) {', '.join(inflowConst)}) inflow BCs: the constant ones also use the built-in "
+                  f"inflow function {inflow_func_1d}")
+    elif inflowConst:
+        inflowFunc = 'constant'
+        if inflow_func_1d:
+            print(f"generate1DPythonSimInitFile :: WARNING: inflow_func_1d = {inflow_func_1d} of the user inputs is not "
+                  f"used: the inflow BCs of the 1D network are constant (inlet_flow module(s) {', '.join(inflowConst)}, "
+                  "BC_type nn_constant), and the 1D solver uses their value as Qin")
+    else:
+        inflowFunc = 'NA'
+        if inflow_func_1d:
+            print(f"generate1DPythonSimInitFile :: WARNING: inflow_func_1d = {inflow_func_1d} of the user inputs is not "
+                  "used: the 1D network has NO inflow BC (inlet_flow module at the inlet of a 1D vessel)")
 
-    # values of the inlet pressure (code 1: inlet_pressure module), outlet pressure (code -1: outlet_pressure module) and
-    # outflow (code -2: outlet_flow module) BCs: the constant values of the modules, i.e. their parameters P_<module>
-    # (pressure, [J/m3]) and v_<module> (flow, [m3/s]). The 1D solver takes one value for all the BCs of each kind (Pin,
-    # Pout, Qout of [BCs]): if the modules of one kind have different values, the first one is used, with a warning.
-    bcKinds = {1: ('Pin', 'inlet', 'P', 1.0e+1, 'dyne/cm2', 'inlet pressure'), # [J/m3] -> [dyne/cm2]
-               -1: ('Pout', 'outlet', 'P', 1.0e+1, 'dyne/cm2', 'outlet pressure'), # [J/m3] -> [dyne/cm2]
-               -2: ('Qout', 'outlet', 'v', 1.0e+6, 'cm3/s', 'outflow')} # [m3/s] -> [cm3/s]
+    # values of the constant inflow (code 0, constant inlet_flow module), inlet pressure (code 1: inlet_pressure module),
+    # outlet pressure (code -1: outlet_pressure module) and outflow (code -2: outlet_flow module) BCs: the constant
+    # values of the modules, i.e. their parameters P_<module> (pressure, [J/m3]) and v_<module> (flow, [m3/s]). The 1D
+    # solver takes one value for all the BCs of each kind (Qin, Pin, Pout, Qout of [BCs]): if the modules of one kind
+    # have different values, the first one is used, with a warning.
+    bcKinds = {}
+    if inflowFunc=='constant':
+        bcKinds[0] = ('Qin', 'inlet', 'v', 1.0e+6, 'cm3/s', 'inflow') # [m3/s] -> [cm3/s]
+    bcKinds.update({1: ('Pin', 'inlet', 'P', 1.0e+1, 'dyne/cm2', 'inlet pressure'), # [J/m3] -> [dyne/cm2]
+                    -1: ('Pout', 'outlet', 'P', 1.0e+1, 'dyne/cm2', 'outlet pressure'), # [J/m3] -> [dyne/cm2]
+                    -2: ('Qout', 'outlet', 'v', 1.0e+6, 'cm3/s', 'outflow')}) # [m3/s] -> [cm3/s]
     bcValues = {} # key of [BCs] -> list of (module name, value in the units of the 1D solver)
     for i in range(len(nodes)):
         if nodes[i]['type'] not in bcKinds:
@@ -812,7 +846,7 @@ def generate1DPythonSimInitFile(df_params, vess, nodes, sim_init_file, filename_
         # outlet pressure BC, with the pressure Pout below
         'termType': 'pOutflow',
         'PoutFile': 'NA',
-        'inflowFunc': inflow_func_1d if inflow_func_1d else 'NA' # NA: no inflow BC
+        'inflowFunc': inflowFunc # built-in inflow function; constant: constant inflow Qin below; NA: no inflow BC
     }
     for key, units, kind in [(k[0], k[4], k[5]) for k in bcKinds.values()]:
         if key not in bcValues: # no BC of this kind: the 1D solver does not use the value

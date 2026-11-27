@@ -4394,8 +4394,8 @@ class CVS1DPythonGenerator(object):
         pre_time, sim_time: time window of the user inputs (see get_time_window())
         T0: cardiac period, parameter T of the model (see get_cardiac_period())
         petsc_solver: PETSc time integration scheme, the same as in the 0d solver (see get_petsc_solver())
-        inflow_func_1d: built-in inflow function of the 1D solver for the inflow BCs of the 1D network (inlet_flow
-                        module at the inlet of a 1D vessel), inflow_func_1d of the user inputs (see
+        inflow_func_1d: built-in inflow function of the 1D solver for the time-dependent inflow BCs of the 1D network
+                        (inlet_flow module at the inlet of a 1D vessel), inflow_func_1d of the user inputs (see
                         generate1DPythonSimInitFile())
         bc_modules_1d: boundary modules at the 1D vessels, replaced by boundary conditions of the 1D solver
                        (bc_modules_1d of the model parser): their values are written into input.ini (see
